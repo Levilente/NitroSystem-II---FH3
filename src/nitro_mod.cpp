@@ -597,14 +597,14 @@ static bool update_grounded(void* car, const float* vel, float dt, uint64_t now)
 
 
 // ---- FH3 research: which CCarDynamics virtual runs every physics tick? -------------------------------------
-// Every slot of CCarDynamics' two vtables (in the exe's .data, game+0x4680EA0 with 17 slots and game+0x4680F30
+// Every slot of the car dynamics object's two vtables (the game makes TRefCountedObjectThreadSafeWithDeletionInfo<CCarDynamics>: game+0x4682578, 17 slots, and game+0x4682608
 // with 474, the second used at this+0x4B0) is pointed at a small stub that counts the call, remembers rcx and jumps
 // on to the game's function. The log then lists the busiest slots and how far the car they ran on is from the
 // player, which tells the per-tick update apart.
 struct ProbeSlot { volatile uint64_t calls; volatile uint64_t last_this; uint64_t target; };
 static ProbeSlot* g_probe = nullptr;
 static int g_probe_count = 0;
-static const uintptr_t kFH3CarVtables[2] = {0x4680EA0, 0x4680F30};
+static const uintptr_t kFH3CarVtables[2] = {0x4682578, 0x4682608};  // TRefCountedObjectThreadSafeWithDeletionInfo<CCarDynamics>, the class the game makes
 static const int kFH3CarVtableSlots[2] = {17, 474};
 static const int kFH3CarVtableThis[2] = {0, 0x4B0};
 
@@ -2055,7 +2055,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.2";
+    info.version          = "2.0.0-fh3.3";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
