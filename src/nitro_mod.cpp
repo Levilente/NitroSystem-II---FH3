@@ -35,6 +35,7 @@
 // Not ported yet (left off in this build): the purchasable Nitrous Kit (every car gets [FH3] Stage from the ini),
 // exhaust flames, camera shake / FOV, the NOS gauge and HUD theme, the MODS page settings.
 #define NITRO_FH3 1
+static std::atomic<float> g_push_scale{1.0f};   // [FH3] PowerScale
 static const uintptr_t kFH3CarUpdate   = 0x1D1E300;
 static const uintptr_t kFH3WorldUpdate = 0x425D40;
 static const int kFH3MgrPlayerPos = 0x520;
@@ -720,6 +721,7 @@ static const int kFH3ReleaseSlot = 3;
 typedef uint64_t (*ReleaseFn)(void* self);
 static ReleaseFn g_orig_release = nullptr;
 static void nitro_tick(void* this_ptr, float dt);
+static void restore_torque(char* car);
 
 static uint64_t detour_release(void* self) {
     char* car = (char*)self - kFH3CarSecondaryThis;
@@ -734,17 +736,63 @@ static uint64_t detour_release(void* self) {
         dt = (float)(now.QuadPart - last.QuadPart) / (float)freq.QuadPart;
     if (car == g_player_cardynamics) last = now, last_car = car;
     if (dt > 0.05f) dt = 1.0f / 360.0f;
+    restore_torque(car);
     nitro_tick(car, dt);
     return g_orig_release(self);
+}
+
+// ---- FH3: nitro as engine torque ----------------------------------------------------------------------------------
+// The engine's torque (game+0x1D27A51, on the car's engine block at object+0x5F8) is the torque curve at the current
+// revs, blended with the turbo / supercharger curve, times the throttle, then times two per-car scales:
+// object+0x10CC (used all over the drivetrain) and object+0x1198 (only on the engine's output). Nitro multiplies
+// object+0x1198 for the player's car while it burns: set at the start of the car's tick (AddRef, slot 2), put back
+// at its end (Release), so the game's own value is never lost. The torque goes through the gearbox and the tyres
+// like any other: wheelspin, gears and traction all apply.
+static const int kFH3AddRefSlot = 2;
+static std::atomic<int> g_torque_field{0x1198};
+typedef uint64_t (*AddRefFn)(void* self);
+static AddRefFn g_orig_addref = nullptr;
+static void* g_scaled_car = nullptr;
+static float g_scaled_base = 1.0f, g_scaled_value = 1.0f;
+static std::atomic<float> g_torque_base_seen{0.0f};
+
+static uint64_t detour_addref(void* self) {
+    uint64_t r = g_orig_addref(self);
+    char* car = (char*)self - kFH3CarSecondaryThis;
+    if (car == g_player_cardynamics && car != g_scaled_car) {   // already scaled this tick: leave it
+        float* f = (float*)(car + g_torque_field.load());
+        float base = *f;
+        g_torque_base_seen.store(base);
+        float boost = g_current_boost.load();
+        if (g_enabled.load() && g_nitro_active.load() && nu_level() > 0 && boost > 1.0f && base > 0.1f && base < 10.0f) {
+            float extra = (boost - 1.0f) * g_push_scale.load();
+            g_scaled_car = car;
+            g_scaled_base = base;
+            g_scaled_value = base * (1.0f + extra);
+            *f = g_scaled_value;
+            g_boosted_frames.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+    return r;
+}
+
+static void restore_torque(char* car) {
+    if (car != g_scaled_car) return;
+    float* f = (float*)(car + g_torque_field.load());
+    if (*f == g_scaled_value) *f = g_scaled_base;   // the game didn't write it meanwhile
+    g_scaled_car = nullptr;
 }
 
 static bool install_release_hook(char* base) {
     void** slot = (void**)(base + kFH3CarSecondaryVtable) + kFH3ReleaseSlot;
     DWORD old = 0;
-    if (!VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &old)) return false;
+    if (!VirtualProtect(slot - 1, 2 * sizeof(void*), PAGE_READWRITE, &old)) return false;   // slots 2 and 3
     g_orig_release = (ReleaseFn)*slot;
     *slot = (void*)&detour_release;
-    VirtualProtect(slot, sizeof(void*), old, &old);
+    void** add = (void**)(base + kFH3CarSecondaryVtable) + kFH3AddRefSlot;
+    g_orig_addref = (AddRefFn)*add;
+    *add = (void*)&detour_addref;
+    VirtualProtect(slot - 1, 2 * sizeof(void*), old, &old);
     return true;
 }
 
@@ -753,7 +801,6 @@ typedef uint64_t (*FH3CarUpdateFn)(void* this_ptr, void* rdx, float dt, void* r9
 static FH3CarUpdateFn g_orig_car_update = nullptr;
 // FH3: the same push was about six times as strong as in FH2 (2 s of nitro to 300 mph), so it's scaled down
 // ([FH3] PushScale), and the real effect is measured (speed from the car's movement, before and during nitro).
-static std::atomic<float> g_push_scale{1.0f};
 static std::atomic<float> g_engine_accel{0.0f};
 static std::atomic<float> g_meas_accel_boost{0.0f}, g_meas_accel_plain{0.0f}, g_meas_speed{0.0f};
 static std::atomic<int> g_cars_seen{0};
@@ -842,20 +889,7 @@ static void nitro_tick(void* this_ptr, float dt) {
                 accel = 0.0f;
             }
             g_engine_accel.store(accel);
-            float push = 0.0f;
-            if (grounded && level && g_enabled.load() && g_nitro_active.load() && nu_level() > 0) {
-                float boost = g_current_boost.load();
-                if (boost > 1.0f && accel > 0.0f && along > 0.5f) {
-                    float a_push = (boost - 1.0f) * accel * g_push_scale.load();
-                    float cap = (boost - 1.0f) * 15.0f;
-                    if (a_push > cap) a_push = cap;
-                    push = a_push * dt_use;
-                    vel[0] += dir[0] * push;
-                    vel[1] += dir[1] * push;
-                    vel[2] += dir[2] * push;
-                    g_boosted_frames.fetch_add(1, std::memory_order_relaxed);
-                }
-            }
+            const float push = 0.0f;   // FH3: nitro is engine torque now (detour_addref), nothing is pushed
             prev_along = along + push;
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -1827,10 +1861,10 @@ static void nitro_worker_thread() {
                 if (c.ptr && now - c.tick < 1000) ++cars;
             snprintf(b, sizeof b,
                      "FH3 check: %llu car updates in 2 s (dt %.4f), %d cars, player pos %s (%.0f, %.0f, %.0f), player car %p at %.1f m from it, "
-                     "speed %.1f m/s (game's own %.1f, measured %.1f), accel %.1f m/s2 plain / %.1f with nitro (engine %.1f, power scale %.2f), up axis %d, boosted ticks %llu",
+                     "torque scale %.3f at +0x%X, speed %.1f m/s (game's own %.1f, measured %.1f), accel %.1f m/s2 plain / %.1f with nitro (engine %.1f, power scale %.2f), up axis %d, boosted ticks %llu",
                      (unsigned long long)(frames - last_frames), g_last_dt.load(), cars,
                      now - g_player_pos_tick.load() < 1000 ? "seen" : "not seen", g_player_pos[0], g_player_pos[1], g_player_pos[2],
-                     g_player_cardynamics, g_diag_player_dist.load(), g_player_speed.load(), g_diag_speed_field.load(), g_meas_speed.load(),
+                     g_player_cardynamics, g_diag_player_dist.load(), g_torque_base_seen.load(), g_torque_field.load(), g_player_speed.load(), g_diag_speed_field.load(), g_meas_speed.load(),
                      g_meas_accel_plain.load(), g_meas_accel_boost.load(), g_engine_accel.load(), g_push_scale.load(), g_up_axis.load(),
                      (unsigned long long)g_boosted_frames.load());
             last_frames = frames;
@@ -2179,7 +2213,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.8";
+    info.version          = "2.0.0-fh3.9";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
@@ -2205,7 +2239,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
         WritePrivateProfileStringW(L"FH3", L"Stage", v, g_ini_path);
         nu_cur_level = stage;
         wchar_t buf[32] = {};
-        // [FH3] PowerScale: 1 = nitro multiplies the engine's push by the stage's boost (1.2 / 1.4 / 1.6x);
+        // [FH3] PowerScale: 1 = nitro multiplies the engine's torque by the stage's boost (1.2 / 1.4 / 1.6x);
         // 2 doubles the extra, 0.5 halves it. (PushScale was the old, constant-push setting.)
         WritePrivateProfileStringW(L"FH3", L"PushScale", nullptr, g_ini_path);
         GetPrivateProfileStringW(L"FH3", L"PowerScale", L"", buf, 32, g_ini_path);
@@ -2213,6 +2247,10 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
         if (!(scale > 0.0f && scale <= 5.0f)) scale = 1.0f;
         if (!buf[0]) WritePrivateProfileStringW(L"FH3", L"PowerScale", L"1.0", g_ini_path);
         g_push_scale.store(scale);
+        // which per-car torque scale nitro multiplies: 0x1198 (the engine's output, default) or 0x10CC
+        int field = (int)GetPrivateProfileIntW(L"FH3", L"TorqueField", 0x1198, g_ini_path);
+        if (field != 0x1198 && field != 0x10CC) field = 0x1198;
+        g_torque_field.store(field);
         char msg[96];
         snprintf(msg, sizeof msg, "FH3 build: every car has Nitrous Kit stage %d ([FH3] Stage in the ini), boost %.1fx", stage, nu_boost(stage));
         api->log(g_mod, msg);
