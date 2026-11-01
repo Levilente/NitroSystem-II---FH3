@@ -250,7 +250,11 @@ struct HudFile {
 #define HUD_GEAR(n) {"HUD_Dial_Digital_Gear_" #n, "ui/textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_" #n ".swatchbin", true}
 #define HUD_ICON(kind, what) {"HUD_Dial_Assist_" kind "_" what "_On", "ui/textures/data_bound/Anthem/HUD/HUD_Dial_Assist_" kind "_" what "_On.swatchbin", true}
 #define HUD_OUTLINE(name) {"HUD_Nos_Outline_" name "_Bar", "ui/textures/data_bound/SpireHUD/HUD_Nos_Outline_" name "_Bar.swatchbin", false}
+#ifdef NITRO_FH3_ASSET_OUTLINE   // build B: the NOS outline is the FH2 picture (swatchbin) instead of a vector line
+static const HudFile k_hud_xaml = {"HUDSpeedometerControlAssets", "UI/Controls/HUDSpeedometerControl.xaml", false};
+#else
 static const HudFile k_hud_xaml = {"HUDSpeedometerControl", "UI/Controls/HUDSpeedometerControl.xaml", false};
+#endif
 static const HudFile k_hud_files[] = {
     HUD_OUTLINE("Digital"), HUD_OUTLINE("Radial"),
     HUD_GEAR(1), HUD_GEAR(2), HUD_GEAR(3), HUD_GEAR(4), HUD_GEAR(5), HUD_GEAR(6), HUD_GEAR(7), HUD_GEAR(8),
@@ -305,7 +309,15 @@ static void apply_hud_theme() {
     if (!g_api->set_file(g_mod, k_hud_xaml.media_path, xaml.data(), xaml.size()))
         g_api->log(g_mod, "HUD: couldn't replace the speedometer XAML (see platform.log).");
 
-    if (NITRO_FH3) {   // FH3: only the speedometer XAML (the NOS bar); the FH2 art isn't used
+    if (NITRO_FH3) {   // FH3: the speedometer XAML (the NOS gauge) and, in build B, the FH2 outline picture
+#ifdef NITRO_FH3_ASSET_OUTLINE
+        std::string png;
+        const char* path = "UI/textures/data_bound/SpireHUD/HUD_Nos_Outline_Radial_Bar.swatchbin";
+        if (load_hud_resource("HUD_Nos_Outline_Radial_Bar", png) && g_api->set_file(g_mod, path, png.data(), png.size()))
+            g_api->log(g_mod, "HUD: the FH2 NOS outline picture is handed to the game (build B).");
+        else
+            g_api->log(g_mod, "HUD: couldn't hand over the FH2 NOS outline picture (see platform.log).");
+#endif
         g_api->log(g_mod, "HUD: the NOS gauge XAML is in place (applies when the HUD is next loaded).");
         return;
     }
@@ -2006,11 +2018,13 @@ static uint32_t fh3_car_exhaust_tips(char* car, uint8_t* msg) {
 typedef int (*FH3PrepareFn)(void*, const char*, int, unsigned, void*, void**, const char**);
 static FH3PrepareFn g_orig_prepare = nullptr;
 static int detour_prepare(void* db, const char* z, int n, unsigned fl, void* old, void** pp, const char** tail) {
-    static std::atomic<int> left{250};
+    static std::atomic<int> left{400};
     if (z && left.load() > 0 && readable_ptr(z, 16)) {
         const char* keys[] = {"UpgradeParts", "UpgradeTypes", "UpgradeAreas", "PurchasedParts", "Career_Garage SET", "List_UpgradeMotorParts", "NitroSystemII"};
         bool hit = false;
         for (const char* k : keys) if (strstr(z, k)) { hit = true; break; }
+        if (hit && (strncmp(z, "CREATE INDEX", 12) == 0 || strncmp(z, "CREATE TABLE", 12) == 0 || strstr(z, "WHERE 1=2") ||
+                    strstr(z, "filedb.") || strncmp(z, "INSERT INTO [", 13) == 0)) hit = false;   // startup copying, not the garage
         if (hit && left.fetch_sub(1) > 0) {
             char b[900];
             size_t len = n < 0 ? strlen(z) : (size_t)n;
@@ -3307,7 +3321,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.39";
+    info.version          = "2.0.0-fh3.40";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
