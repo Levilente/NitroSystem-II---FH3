@@ -699,6 +699,44 @@ static void probe_report(char* base) {
     g_api->log(g_mod, line);
 }
 
+// FH3: the physics runs at 360 Hz, and every tick takes a reference to each car's dynamics object and lets it go
+// again (AddRef / Release, slots 2 and 3 of the object's second vtable, game+0x4682608, `this` at object+0x4B0;
+// found by counting calls on the player's car). Release is the end of the car's tick, so the push goes there,
+// before the game's Release runs (it may free the object). The time step is measured, so extra calls don't add up.
+static const uintptr_t kFH3CarSecondaryVtable = 0x4682608;
+static const int kFH3CarSecondaryThis = 0x4B0;
+static const int kFH3ReleaseSlot = 3;
+typedef uint64_t (*ReleaseFn)(void* self);
+static ReleaseFn g_orig_release = nullptr;
+static void nitro_tick(void* this_ptr, float dt);
+
+static uint64_t detour_release(void* self) {
+    char* car = (char*)self - kFH3CarSecondaryThis;
+    static LARGE_INTEGER freq{};
+    static LARGE_INTEGER last{};
+    static void* last_car = nullptr;
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    if (!freq.QuadPart) QueryPerformanceFrequency(&freq);
+    float dt = 1.0f / 360.0f;
+    if (car == g_player_cardynamics && car == last_car && last.QuadPart)
+        dt = (float)(now.QuadPart - last.QuadPart) / (float)freq.QuadPart;
+    if (car == g_player_cardynamics) last = now, last_car = car;
+    if (dt > 0.05f) dt = 1.0f / 360.0f;
+    nitro_tick(car, dt);
+    return g_orig_release(self);
+}
+
+static bool install_release_hook(char* base) {
+    void** slot = (void**)(base + kFH3CarSecondaryVtable) + kFH3ReleaseSlot;
+    DWORD old = 0;
+    if (!VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &old)) return false;
+    g_orig_release = (ReleaseFn)*slot;
+    *slot = (void*)&detour_release;
+    VirtualProtect(slot, sizeof(void*), old, &old);
+    return true;
+}
+
 // FH3: the per-tick update takes the time step as its third argument (xmm2); the others are passed through.
 typedef uint64_t (*FH3CarUpdateFn)(void* this_ptr, void* rdx, float dt, void* r9);
 static FH3CarUpdateFn g_orig_car_update = nullptr;
@@ -707,14 +745,12 @@ static std::atomic<float> g_last_dt{0.0f};
 static std::atomic<float> g_diag_player_dist{-1.0f};
 static std::atomic<float> g_diag_speed_field{-1.0f};
 
-static uint64_t detour_cardynamics(void* this_ptr, void* rdx, float dt, void* r9) {
-    uint64_t res = 0;
-    if (g_orig_car_update) res = g_orig_car_update(this_ptr, rdx, dt, r9);
+static void nitro_tick(void* this_ptr, float dt) {
 
     g_physics_frames.fetch_add(1, std::memory_order_relaxed);
     g_phys_tid.store(GetCurrentThreadId(), std::memory_order_relaxed);
     g_last_dt.store(dt, std::memory_order_relaxed);
-    if (!this_ptr) return res;
+    if (!this_ptr) return;
 
     __try {
         uint64_t now = GetTickCount64();
@@ -764,7 +800,7 @@ static uint64_t detour_cardynamics(void* this_ptr, void* rdx, float dt, void* r9
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
     }
-    return res;
+    return;
 }
 
 // Backfire Hook: Call at RVA 0x13B0DE6 in Anthem (CarPresentation11::UpdateBackfire)
@@ -1709,8 +1745,8 @@ static void nitro_worker_thread() {
 
     // FH3: CCarDynamics' per-tick update (vtable slot 16) and CWorldCollObjMan::Update. The other FH2 hooks
     // (backfire, frame step, cameras, speedometer) aren't ported yet.
-    g_api->log(g_mod, install_probe((char*)base) ? "FH3 research: counting CCarDynamics' virtual calls (491 slots)."
-                                                 : "FH3 research: couldn't set up the call counting.");
+    g_api->log(g_mod, install_release_hook((char*)base) ? "Car physics tick hooked (nitro push, 360 Hz)."
+                                                        : "Could not hook the car physics tick: no nitro push.");
 
     void* mgr_update = (void*)((uintptr_t)base + kFH3WorldUpdate);
     FH3Hook* hook_mgr = g_api->hook_function(g_mod, "CWorldCollObjMan::Update", mgr_update, (void*)detour_mgr_update, (void**)&g_orig_mgr_update);
@@ -1738,7 +1774,7 @@ static void nitro_worker_thread() {
                      (unsigned long long)g_boosted_frames.load());
             last_frames = frames;
             g_api->log(g_mod, b);
-            if (g_probe) probe_report((char*)g_game_base);
+
         }
     }).detach();
 
@@ -2082,7 +2118,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.5";
+    info.version          = "2.0.0-fh3.6";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
