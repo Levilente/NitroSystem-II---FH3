@@ -1258,7 +1258,8 @@ static bool fh3_player_on_stack(void* deferred) {
 // CarPresentation (game+0x468E848 / 0x46902E0 vtable) it owns, and reads the exhaust tips the presentation already
 // holds (presentation+0x1090, 8 x 0x50 bytes; the message's tip array is copied there by the backfire routine).
 static const uintptr_t kFH3PostQueue = 0x1A30DA0;
-static const uintptr_t kFH3DeferredVtable = 0x468B058;
+static const uintptr_t kFH3DeferredVtable = 0x468B058, kFH3DeferredVtable2 = 0x468B9B8;
+static std::atomic<uint32_t> g_fh3_queue_stack_hits{0};
 static const uintptr_t kFH3PresVtables[2] = {0x468E848, 0x46902E0};
 static const int kFH3PresTips = 0x1090;
 typedef uint64_t (*FH3QueueFn)(void*, void*, void*, void*, void*, void*, void*, void*);
@@ -1322,12 +1323,24 @@ static void fh3_find_pres(void* deferred) {
 
 static uint64_t detour_fh3_queue(void* a, void* b, void* c, void* d, void* e, void* f, void* g, void* h) {
     g_fh3_queue_calls.fetch_add(1, std::memory_order_relaxed);
-    if (!g_fh3_player_deferred.load() && a && g_player_cardynamics && readable_ptr((char*)a + 0x10, 8) &&
-        *(uintptr_t*)((char*)a + 0x10) == (uintptr_t)g_game_base + kFH3DeferredVtable && fh3_stack_has_player(0x2000)) {
-        void* deferred = (char*)a + 0x10;
-        g_fh3_player_deferred.store(deferred);
-        g_fh3_post_tid.store(GetCurrentThreadId());
-        fh3_find_pres(deferred);
+    if (!g_fh3_player_deferred.load() && a && g_player_cardynamics && readable_ptr((char*)a + 0x10, 8) && fh3_stack_has_player(0x2000)) {
+        // the object's own vtable is either the class's (0x468B058) or the ref-counted wrapper's that the game instantiates (0x468B9B8)
+        uintptr_t vt = *(uintptr_t*)((char*)a + 0x10) - (uintptr_t)g_game_base;
+        g_fh3_queue_stack_hits.fetch_add(1, std::memory_order_relaxed);
+        if (vt == kFH3DeferredVtable || vt == kFH3DeferredVtable2) {
+            void* deferred = (char*)a + 0x10;
+            g_fh3_player_deferred.store(deferred);
+            g_fh3_post_tid.store(GetCurrentThreadId());
+            fh3_find_pres(deferred);
+        } else {
+            static int logs = 4;
+            if (logs-- > 0) {
+                char buf[160];
+                snprintf(buf, sizeof buf, "flames: a queued message from the player's car update has an object at %p with vtable game+0x%llX (not the presentation)",
+                         (char*)a + 0x10, (unsigned long long)vt);
+                g_api->log(g_mod, buf);
+            }
+        }
     }
     return g_orig_fh3_queue(a, b, c, d, e, f, g, h);
 }
@@ -2213,11 +2226,12 @@ static void nitro_worker_thread() {
             last_frames = frames;
             g_api->log(g_mod, b);
             snprintf(b, sizeof b, "flames: posts %u (flagged %u, player's %u, thread %lu), routine runs %u (flagged %u, thread %lu), "
-                     "player presentation %p at +0x%X, tips known %d, mask %02X (forced %02X), nitro flames posted %u, release thread %lu",
+                     "player presentation %p at +0x%X, tips known %d, mask %02X (forced %02X), nitro flames posted %u, release thread %lu, queue calls %u (from the player car %u), presentation %p, pres mask %02X",
                      g_fh3_post_calls.load(), g_fh3_post_flagged.load(), g_fh3_post_player.load(), (unsigned long)g_fh3_post_tid.load(),
                      g_fh3_routine_calls.load(), g_fh3_routine_flagged.load(), (unsigned long)g_fh3_routine_tid.load(),
                      g_fh3_player_deferred.load(), g_fh3_deferred_off.load(), (int)g_fh3_tips_ok.load(), g_fh3_mask.load(),
-                     g_fh3_mask_forced.load(), g_fh3_driven.load(), (unsigned long)g_phys_tid.load());
+                     g_fh3_mask_forced.load(), g_fh3_driven.load(), (unsigned long)g_phys_tid.load(),
+                     g_fh3_queue_calls.load(), g_fh3_queue_stack_hits.load(), g_fh3_pres.load(), g_fh3_mask_pres.load());
             g_api->log(g_mod, b);
 
         }
@@ -2563,7 +2577,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.15";
+    info.version          = "2.0.0-fh3.16";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
