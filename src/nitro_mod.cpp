@@ -2001,6 +2001,28 @@ static uint32_t fh3_car_exhaust_tips(char* car, uint8_t* msg) {
     return mask;
 }
 
+// ---- Nitrous Kit shop, step 1 (research): what SQL the garage runs. sqlite3LockAndPrepare is game+0x440C0:
+// (db, zSql, nBytes, prepFlags, pOld, ppStmt, pzTail). Logged only, nothing is changed yet.
+typedef int (*FH3PrepareFn)(void*, const char*, int, unsigned, void*, void**, const char**);
+static FH3PrepareFn g_orig_prepare = nullptr;
+static int detour_prepare(void* db, const char* z, int n, unsigned fl, void* old, void** pp, const char** tail) {
+    static std::atomic<int> left{250};
+    if (z && left.load() > 0 && readable_ptr(z, 16)) {
+        const char* keys[] = {"UpgradeParts", "UpgradeTypes", "UpgradeAreas", "PurchasedParts", "Career_Garage SET", "List_UpgradeMotorParts", "NitroSystemII"};
+        bool hit = false;
+        for (const char* k : keys) if (strstr(z, k)) { hit = true; break; }
+        if (hit && left.fetch_sub(1) > 0) {
+            char b[900];
+            size_t len = n < 0 ? strlen(z) : (size_t)n;
+            if (len > 600) len = 600;
+            snprintf(b, sizeof b, "sql: %.*s", (int)len, z);
+            for (char* c = b; *c; ++c) if (*c == '\n' || *c == '\r' || *c == '\t') *c = ' ';
+            if (g_api && g_mod) g_api->log(g_mod, b);
+        }
+    }
+    return g_orig_prepare(db, z, n, fl, old, pp, tail);
+}
+
 typedef uint64_t (*HudCtrlFn)(void*, void*, void*, void*);
 static HudCtrlFn g_orig_hud_ctrl = nullptr;
 // The HUD speedometer controller (game+0xB26690, rcx = controller): +0x120/+0x128 is a weak pointer to the player's car.
@@ -2869,6 +2891,11 @@ static void nitro_worker_thread() {
 
     install_fh3_flames((char*)base);
     {
+        FH3Hook* hp = g_api->hook_function(g_mod, "sqlite3LockAndPrepare", (char*)base + 0x440C0,
+                                           (void*)detour_prepare, (void**)&g_orig_prepare);
+        if (!(hp && g_api->enable_hooks(g_mod, hp))) { g_orig_prepare = nullptr; g_api->log(g_mod, "Could not hook the SQL prepare function."); }
+    }
+    {
         FH3Hook* hc = g_api->hook_function(g_mod, "HUD controller update", (char*)base + 0xB26690,
                                            (void*)detour_hud_ctrl, (void**)&g_orig_hud_ctrl);
         if (!(hc && g_api->enable_hooks(g_mod, hc))) { g_orig_hud_ctrl = nullptr; g_api->log(g_mod, "Could not hook the HUD controller: the player's car is told apart by position only."); }
@@ -3280,7 +3307,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.38";
+    info.version          = "2.0.0-fh3.39";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
@@ -3295,6 +3322,8 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     // Initialize paths & load persistent settings from NitroSystemII.ini
     init_paths();
     load_config();
+    if (api->api_version >= 2 && api->add_sql)   // a harmless table: shows whether the game accepts the platform's database copy
+        api->add_sql(g_mod, "CREATE TABLE IF NOT EXISTS NitroSystemII_Probe (x INTEGER);");
     // The garage upgrade (the Nitrous Kit part). Without it the mod has no way to know a car owns nitrous.
     // FH3: the garage upgrade isn't ported yet. Every car gets the stage in [FH3] Stage (1-3, default 2), with the
     // boosts from [Upgrade] as before.
