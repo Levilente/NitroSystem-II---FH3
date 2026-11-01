@@ -9,7 +9,7 @@
      - the game's own getter of the current car's garage id is observed.
    nu_level() is what the rest of the mod reads: 0 = no nitrous on the car being driven, 1..3 = the stage.
 
-   Included by nitro_mod.cpp after windows.h and fh2mod.h; the caller supplies nu_say(). Common C / C++ subset. */
+   Included by nitro_mod.cpp after windows.h and fh3mod.h; the caller supplies nu_say(). Common C / C++ subset. */
 #ifndef NU_UPGRADE_H
 #define NU_UPGRADE_H
 #include <stdint.h>
@@ -21,8 +21,8 @@
 #define NU_RVA_PROFILE_ROOT    0x034B3E18u   /* global: object whose virtual +0x48 then +0xD8 gives the save-data holder */
 #define NU_RVA_CURRENT_GARAGE  0x002DCAB0u   /* (holder) -> garage id of the current car (save value Main/CareerCar) */
 
-static const FH2ModApi *nu_api;
-static FH2Mod *nu_mod;
+static const FH3ModApi *nu_api;
+static FH3Mod *nu_mod;
 static unsigned char *nu_game;
 static wchar_t nu_ini[MAX_PATH + 16];
 static NuCfg nu_cfg;
@@ -359,7 +359,7 @@ static DWORD WINAPI nu_install_worker(LPVOID unused) {
     static const unsigned char lookup_head[] = { 0x48, 0x83, 0xEC, 0x38, 0xB8, 0xFF, 0xFF, 0x00, 0x00, 0x45, 0x8B, 0xC8, 0x66, 0x3B, 0xD0 };
     static const unsigned char garage_head[] = { 0x40, 0x53, 0x48, 0x83, 0xEC, 0x40, 0x48, 0xC7, 0x44, 0x24, 0x20, 0xFE, 0xFF, 0xFF, 0xFF, 0x4C, 0x8D, 0x05 };
     nu_build_texts();
-    FH2Hook *hl = NULL, *hg = NULL;
+    FH3Hook *hl = NULL, *hg = NULL;
     if (nu_code_matches(NU_RVA_LOC_LOOKUP, lookup_head, sizeof lookup_head))
         hl = nu_api->hook_function(nu_mod, "string lookup (nitrous kit names)", nu_game + NU_RVA_LOC_LOOKUP, (void *)nu_lookup_hook, (void **)&nu_real_lookup);
     if (hl && nu_api->enable_hooks(nu_mod, hl)) nu_say("names: Nitrous Kit, Stock, Stage 1..3 Nitrous");
@@ -377,17 +377,17 @@ static DWORD WINAPI nu_install_worker(LPVOID unused) {
         if (!slot_vt) Sleep(500);
     }
     if (!slot_vt) { nu_say("the game's database object was not found; the nitrous upgrade is not active"); return 0; }
-    FH2Hook *h = nu_api->hook_function(nu_mod, "database query (nitrous kit)", slot_vt[NU_DB_SLOT], (void *)nu_query_hook, (void **)&nu_real_query);
+    FH3Hook *h = nu_api->hook_function(nu_mod, "database query (nitrous kit)", slot_vt[NU_DB_SLOT], (void *)nu_query_hook, (void **)&nu_real_query);
     if (!h || !nu_api->enable_hooks(nu_mod, h)) { nu_say("could not hook the database query function; the nitrous upgrade is not active"); return 0; }
     nu_say("nitrous upgrade active: Garage > Upgrades > Custom upgrade > Engine > Nitrous Kit");
     return 0;
 }
 
-/* Called from fh2mod_init (after load_config). Needs the platform API with add_sql and hooks (api_version >= 3). */
+/* Called from fh3mod_init (after load_config). Needs the platform API with add_sql and hooks (api_version >= 3). */
 /* The mod's own upgrade icons (the PNGs in icons/, packed into icon_data.h) are handed to the game as files under
    media\ui\textures\data_bound\Upgrade_Parts.zip\Custom\ through the platform (set_file): nothing of the game
    is changed on disk, the files are mediaoverride copies that the platform removes again with the mod. */
-static void nu_install_icons(const FH2ModApi *api, FH2Mod *mod) {
+static void nu_install_icons(const FH3ModApi *api, FH3Mod *mod) {
     static const char base[] = "ui/textures/data_bound/Upgrade_Parts/";
     if (ICON_COUNT == 0 || api->api_version < 2 || !api->set_file) return;
     int ok = 0, total = 0;
@@ -406,9 +406,9 @@ static void nu_install_icons(const FH2ModApi *api, FH2Mod *mod) {
     nu_say(msg);
 }
 
-static int nu_init(const FH2ModApi *api, FH2Mod *mod, const wchar_t *ini, int seconds) {
+static int nu_init(const FH3ModApi *api, FH3Mod *mod, const wchar_t *ini, int seconds) {
     nu_api = api; nu_mod = mod;
-    if (!api || api->api_version < 3 || api->size < sizeof(FH2ModApi) || !api->hook_function || !api->enable_hooks || !api->wait_for_code || !api->add_sql) return 0;
+    if (!api || api->api_version < 3 || api->size < sizeof(FH3ModApi) || !api->hook_function || !api->enable_hooks || !api->wait_for_code || !api->add_sql) return 0;
     nu_load_config(ini, seconds);
     nu_install_icons(api, mod);
     NuBuf b; nu_begin(&b, nu_db_sql, sizeof nu_db_sql - 1);

@@ -1,7 +1,7 @@
-#ifndef FH2MOD_PLATFORM_VERSION
-#define FH2MOD_PLATFORM_VERSION "2.8.0"
+#ifndef FH3MOD_PLATFORM_VERSION
+#define FH3MOD_PLATFORM_VERSION "2.8.0"
 #endif
-#include "fh2mod.h"
+#include "fh3mod.h"
 #include "legacy_files.h"
 
 #include <windows.h>
@@ -21,6 +21,24 @@
 #include <vector>
 
 #pragma comment(lib, "winmm.lib")
+
+// ---- Forza Horizon 3 port --------------------------------------------------------------------------------
+// FH3 (Xbox One build 1.0.125.0, exe of 5 Jun 2018, run through Azimuth) differs from FH2 in every address and in
+// CCarDynamics' layout. Found by lining the two exes up (docs/FH3_PORT.md):
+//   CCarDynamics' per-tick update: vtable slot 16 (FH2 0x12C1EA0, this, ?, ?, ?, float dt on the stack;
+//   FH3 0x1D1E300, this, ?, float dt in the third argument).
+//   Fields (from the vtable getters: FH2 GetTransform/GetVelocity = FH3 slots 1 / 101 / 102):
+//     position   FH2 +0x10  FH3 +0x30
+//     forward    FH2 +0x40  FH3 +0x90   (third row of the rotation; FH3 rows at +0x70/+0x80/+0x90)
+//     velocity   FH2 +0x50  FH3 +0x10   (FH3 also keeps its length at +0x12D4, written by SetVelocity)
+//   CWorldCollObjMan::Update: FH2 0x384C00 (player position at mgr+0x4F0), FH3 0x425D40 (at mgr+0x520).
+// Not ported yet (left off in this build): the purchasable Nitrous Kit (every car gets [FH3] Stage from the ini),
+// exhaust flames, camera shake / FOV, the NOS gauge and HUD theme, the MODS page settings.
+#define NITRO_FH3 1
+static const uintptr_t kFH3CarUpdate   = 0x1D1E300;
+static const uintptr_t kFH3WorldUpdate = 0x425D40;
+static const int kFH3MgrPlayerPos = 0x520;
+static const int kFH3CarVel = 0x10, kFH3CarPos = 0x30, kFH3CarFwd = 0x90, kFH3CarSpeed = 0x12D4;
 
 #ifdef __MINGW32__
 // mingw: the wide secure printf is the plain underscore one there
@@ -49,8 +67,8 @@ static void load() {
 }  // namespace xin
 
 // Configuration & State
-static const FH2ModApi* g_api = nullptr;
-static FH2Mod* g_mod = nullptr;
+static const FH3ModApi* g_api = nullptr;
+static FH3Mod* g_mod = nullptr;
 
 static std::atomic<bool> g_enabled{true};
 static std::atomic<bool> g_debug{false};          // on-screen debug overlay (Mods page)
@@ -87,7 +105,7 @@ static wchar_t g_sound_stop_path[MAX_PATH] = {0};
 // File paths initialization
 static void init_paths() {
     if (g_api && g_api->azimuth_dir) {
-        swprintf_s(g_ini_path, MAX_PATH, L"%ls\\fh2-mods\\NitroSystemII.ini", g_api->azimuth_dir);
+        swprintf_s(g_ini_path, MAX_PATH, L"%ls\\fh3-mods\\NitroSystemII.ini", g_api->azimuth_dir);
         swprintf_s(g_sound_boost_path, MAX_PATH, L"%ls\\NitroSystemII\\nos_boost.wav", g_api->azimuth_dir);
         swprintf_s(g_sound_stop_path, MAX_PATH, L"%ls\\NitroSystemII\\nos_stop.wav", g_api->azimuth_dir);
     }
@@ -264,6 +282,8 @@ static void replace_all(std::string& s, const char* from, const char* to) {
 }
 
 static void apply_hud_theme() {
+    // FH3: the HUD files are FH2's (FH3's speedometer XAML differs); not handed to the game until they're ported.
+    if (NITRO_FH3) return;
     if (!g_api || !g_mod || g_api->api_version < 2) return;
     const bool ff = g_hud_theme.load() != 0;
 
@@ -405,7 +425,7 @@ static void detour_mgr_update(uint8_t* mgr, float a, float b) {
     if (!mgr) return;
 
     __try {
-        const float* p = (const float*)(mgr + 0x4F0);
+        const float* p = (const float*)(mgr + kFH3MgrPlayerPos);
         if (std::isfinite(p[0]) && std::isfinite(p[1]) && std::isfinite(p[2])) {
             g_player_pos[0] = p[0];
             g_player_pos[1] = p[1];
@@ -422,7 +442,7 @@ static const float kCalibRadius2 = 8.0f * 8.0f;   // player position can lag the
 static const float kPlayerRadius2 = 25.0f * 25.0f;
 static const float kFlameRadius2 = 6.0f * 6.0f;     // presentation car "is the player" radius when finding it
 static const float kStickyRadius2 = 40.0f * 40.0f;  // ...and when it is already known: at 250+ km/h the two positions lag apart
-static std::atomic<int> g_pos_offset{-1};          // offset of the world position inside CCarDynamics
+static std::atomic<int> g_pos_offset{kFH3CarPos};          // offset of the world position inside CCarDynamics
 static std::atomic<int> g_calib_report{0};         // 0 none, 1 learned, 2 failed (logged by the worker)
 static std::atomic<int> g_calib_best_hits{0};
 
@@ -575,79 +595,70 @@ static bool update_grounded(void* car, const float* vel, float dt, uint64_t now)
     return fall_ticks < 2 && grace == 0;
 }
 
-static bool detour_cardynamics(void* this_ptr, void* rdx, void* r8, uint32_t r9, float dt) {
-    bool res = false;
-    if (g_orig_cardynamics) {
-        res = g_orig_cardynamics(this_ptr, rdx, r8, r9, dt);
-    }
+// FH3: the per-tick update takes the time step as its third argument (xmm2); the others are passed through.
+typedef uint64_t (*FH3CarUpdateFn)(void* this_ptr, void* rdx, float dt, void* r9);
+static FH3CarUpdateFn g_orig_car_update = nullptr;
+static std::atomic<int> g_cars_seen{0};
+static std::atomic<float> g_last_dt{0.0f};
+static std::atomic<float> g_diag_player_dist{-1.0f};
+static std::atomic<float> g_diag_speed_field{-1.0f};
+
+static uint64_t detour_cardynamics(void* this_ptr, void* rdx, float dt, void* r9) {
+    uint64_t res = 0;
+    if (g_orig_car_update) res = g_orig_car_update(this_ptr, rdx, dt, r9);
 
     g_physics_frames.fetch_add(1, std::memory_order_relaxed);
     g_phys_tid.store(GetCurrentThreadId(), std::memory_order_relaxed);
-
+    g_last_dt.store(dt, std::memory_order_relaxed);
     if (!this_ptr) return res;
 
     __try {
-        // In CCarDynamics, [this_ptr + 0x178] == 1 marks a simulated car (the player's, AI racers and traffic)
-        int is_sim = *(const int*)((uintptr_t)this_ptr + 0x178);
-        if (is_sim == 1) {
-            uint64_t now = GetTickCount64();
-            g_last_physics_tick.store(now);
-            note_car(this_ptr, now);
-            if (g_pos_offset.load() < 0) calibrate_position_offset(this_ptr, now);
+        uint64_t now = GetTickCount64();
+        g_last_physics_tick.store(now);
+        note_car(this_ptr, now);
 
-            bool mine = is_player_car(this_ptr, now);
-            if (mine) {
-                if (g_player_cardynamics != this_ptr) nu_mark_dirty();   // another car: read its garage id again
-                g_player_cardynamics = this_ptr;
-            }
+        bool mine = is_player_car(this_ptr, now);
+        if (mine) {
+            if (g_player_cardynamics != this_ptr) nu_mark_dirty();
+            g_player_cardynamics = this_ptr;
+            float d2;
+            if (car_dist2(this_ptr, kFH3CarPos, &d2)) g_diag_player_dist.store(sqrtf(d2));
+            g_diag_speed_field.store(*(const float*)((uintptr_t)this_ptr + kFH3CarSpeed));
+        }
 
-            // In CCarDynamics:
-            // [this_ptr + 0x40] = Orientation forward vector (float[3])
-            // [this_ptr + 0x50] = Vehicle linear velocity vector (float[3])
-            const float* fwd = (const float*)((uintptr_t)this_ptr + 0x40);
-            float* vel = (float*)((uintptr_t)this_ptr + 0x50);
+        const float* fwd = (const float*)((uintptr_t)this_ptr + kFH3CarFwd);
+        float* vel = (float*)((uintptr_t)this_ptr + kFH3CarVel);
 
-            bool grounded = true;
-            if (mine) {
-                g_player_speed.store(sqrtf(vel[0] * vel[0] + vel[1] * vel[1] + vel[2] * vel[2]));
-                learn_up_axis(this_ptr, now);
-                grounded = update_grounded(this_ptr, vel, dt, now);
-            }
+        bool grounded = true;
+        if (mine) {
+            g_player_speed.store(sqrtf(vel[0] * vel[0] + vel[1] * vel[1] + vel[2] * vel[2]));
+            learn_up_axis(this_ptr, now);
+            grounded = update_grounded(this_ptr, vel, dt, now);
+        }
 
-            if (mine && grounded && g_enabled.load() && g_nitro_active.load() && nu_level() > 0) {
-                float boost = g_current_boost.load();
-                if (boost > 1.0f) {
-                    // Push along the horizontal part of the nose so a pitched-up car isn't thrown skyward
-                    float dir[3] = {fwd[0], fwd[1], fwd[2]};
-                    bool apply = true;
-                    int up = g_up_axis.load();
-                    if (up >= 0) {
-                        dir[up] = 0.0f;
-                        float len = sqrtf(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
-                        if (len < 0.3f) {
-                            apply = false; // nose nearly vertical
-                        } else {
-                            dir[0] /= len; dir[1] /= len; dir[2] /= len;
-                        }
-                    }
-
-                    if (apply) {
-                        float dt_use = (dt > 0.001f && dt < 0.1f) ? dt : 0.01667f;
-                        // Substantial acceleration force:
-                        // At boost 3.0x: (3.0 - 1.0) * 22.0f * dt ~ 0.73 m/s/tick (~44 m/s^2 or ~4.5 Gs)
-                        // At boost 10.0x: (10.0 - 1.0) * 22.0f * dt ~ 3.3 m/s/tick (~198 m/s^2 - extreme nitro rush!)
-                        float impulse = (boost - 1.0f) * 22.0f * dt_use;
-                        vel[0] += dir[0] * impulse;
-                        vel[1] += dir[1] * impulse;
-                        vel[2] += dir[2] * impulse;
-
-                        g_boosted_frames.fetch_add(1, std::memory_order_relaxed);
-                    }
+        if (mine && grounded && g_enabled.load() && g_nitro_active.load() && nu_level() > 0) {
+            float boost = g_current_boost.load();
+            if (boost > 1.0f) {
+                float dir[3] = {fwd[0], fwd[1], fwd[2]};
+                bool apply = true;
+                int up = g_up_axis.load();
+                if (up >= 0) {
+                    dir[up] = 0.0f;
+                    float len = sqrtf(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+                    if (len < 0.3f) apply = false;
+                    else { dir[0] /= len; dir[1] /= len; dir[2] /= len; }
+                }
+                if (apply) {
+                    float dt_use = (dt > 0.001f && dt < 0.1f) ? dt : 0.01667f;
+                    float impulse = (boost - 1.0f) * 22.0f * dt_use;
+                    vel[0] += dir[0] * impulse;
+                    vel[1] += dir[1] * impulse;
+                    vel[2] += dir[2] * impulse;
+                    g_boosted_frames.fetch_add(1, std::memory_order_relaxed);
                 }
             }
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
-        // Safe protection
     }
     return res;
 }
@@ -1592,90 +1603,41 @@ static void nitro_worker_thread() {
     g_api->log(g_mod, log_buf);
     g_game_base = base;
 
-    // Hook CCarDynamics::UpdateDynamics (RVA 0x12C1EA0)
-    void* target_func = (void*)((uintptr_t)base + 0x12C1EA0);
-    FH2Hook* hook = g_api->hook_function(g_mod, "CCarDynamics::UpdateDynamics", target_func, (void*)detour_cardynamics, (void**)&g_orig_cardynamics);
-    if (hook) {
-        if (g_api->enable_hooks(g_mod, hook)) {
-            g_api->log(g_mod, "CCarDynamics::UpdateDynamics successfully hooked for physical nitro acceleration!");
-        } else {
-            g_api->log(g_mod, "Failed to enable CCarDynamics hook.");
+    // FH3: CCarDynamics' per-tick update (vtable slot 16) and CWorldCollObjMan::Update. The other FH2 hooks
+    // (backfire, frame step, cameras, speedometer) aren't ported yet.
+    void* target_func = (void*)((uintptr_t)base + kFH3CarUpdate);
+    FH3Hook* hook = g_api->hook_function(g_mod, "CCarDynamics::Update", target_func, (void*)detour_cardynamics, (void**)&g_orig_car_update);
+    g_api->log(g_mod, hook && g_api->enable_hooks(g_mod, hook) ? "CCarDynamics::Update hooked (nitro push)."
+                                                               : "Could not hook CCarDynamics::Update: no nitro push.");
+
+    void* mgr_update = (void*)((uintptr_t)base + kFH3WorldUpdate);
+    FH3Hook* hook_mgr = g_api->hook_function(g_mod, "CWorldCollObjMan::Update", mgr_update, (void*)detour_mgr_update, (void**)&g_orig_mgr_update);
+    g_api->log(g_mod, hook_mgr && g_api->enable_hooks(g_mod, hook_mgr) ? "CWorldCollObjMan::Update hooked to find the player's car."
+                                                                       : "Could not hook CWorldCollObjMan::Update: the player's car can't be found, so no nitro.");
+
+    // FH3 research: what the hooks see, every 5 seconds for the first minutes (the offsets come from reading the
+    // code, not from a running game).
+    std::thread([] {
+        for (int i = 0; i < 24; ++i) {
+            Sleep(5000);
+            char b[320];
+            static uint64_t last_frames = 0;
+            const uint64_t frames = g_physics_frames.load();
+            int cars = 0;
+            const uint64_t now = GetTickCount64();
+            for (const auto& c : g_seen)
+                if (c.ptr && now - c.tick < 1000) ++cars;
+            snprintf(b, sizeof b,
+                     "FH3 check: %llu car updates in 5 s (dt %.4f), %d cars, player pos %s (%.0f, %.0f, %.0f), player car %p at %.1f m from it, "
+                     "speed %.1f m/s (game's own %.1f), up axis %d, boosted ticks %llu",
+                     (unsigned long long)(frames - last_frames), g_last_dt.load(), cars,
+                     now - g_player_pos_tick.load() < 1000 ? "seen" : "not seen", g_player_pos[0], g_player_pos[1], g_player_pos[2],
+                     g_player_cardynamics, g_diag_player_dist.load(), g_player_speed.load(), g_diag_speed_field.load(), g_up_axis.load(),
+                     (unsigned long long)g_boosted_frames.load());
+            last_frames = frames;
+            g_api->log(g_mod, b);
         }
-    } else {
-        g_api->log(g_mod, "Failed to create CCarDynamics hook.");
-    }
-
-    void* bf_entry = (void*)((uintptr_t)base + 0x13B0D70);
-    FH2Hook* hook_bfe = g_api->hook_function(g_mod, "CarPresentation11::UpdateBackfire", bf_entry, (void*)detour_backfire_entry, (void**)&g_orig_backfire_entry);
-    if (hook_bfe && g_api->enable_hooks(g_mod, hook_bfe)) {
-        g_api->log(g_mod, "UpdateBackfire entry hooked (learns which exhaust tips are real).");
-    } else {
-        g_api->log(g_mod, "Could not hook the UpdateBackfire entry.");
-    }
-
-    void* frame_fn = (void*)((uintptr_t)base + 0xFA78A0);
-    FH2Hook* hook_frame = g_api->hook_function(g_mod, "GameLogic::FrameStep", frame_fn, (void*)detour_game_frame, (void**)&g_orig_game_frame);
-    if (hook_frame && g_api->enable_hooks(g_mod, hook_frame)) {
-        g_api->log(g_mod, "Game logic frame step hooked (drives the exhaust flames during nitro).");
-    } else {
-        g_api->log(g_mod, "Could not hook the game logic frame step; flames will only fire on the game's own events.");
-    }
-
-    // Hook CWorldCollObjMan::Update (RVA 0x384C00) to read the player's position. WreckingBall hooks it
-    // too; the platform chains hooks on the same function.
-    void* mgr_update = (void*)((uintptr_t)base + 0x384C00);
-    FH2Hook* hook_mgr = g_api->hook_function(g_mod, "CWorldCollObjMan::Update", mgr_update, (void*)detour_mgr_update, (void**)&g_orig_mgr_update);
-    if (hook_mgr && g_api->enable_hooks(g_mod, hook_mgr)) {
-        g_api->log(g_mod, "CWorldCollObjMan::Update hooked to find the player's car.");
-    } else {
-        g_api->log(g_mod, "Failed to hook CWorldCollObjMan::Update; nitro will boost every simulated car.");
-    }
-
-    void* view_mounted = (void*)((uintptr_t)base + 0x1034360);
-    void* view_chase = (void*)((uintptr_t)base + 0x1034430);
-    FH2Hook* hook_vm = g_api->hook_function(g_mod, "CameraMounted::ViewMatrix", view_mounted, (void*)detour_view_mounted, (void**)&g_orig_view_mounted);
-    FH2Hook* hook_vc = g_api->hook_function(g_mod, "CameraFollow::ViewMatrix", view_chase, (void*)detour_view_chase, (void**)&g_orig_view_chase);
-    bool shake_mounted = hook_vm && g_api->enable_hooks(g_mod, hook_vm);
-    bool shake_chase = hook_vc && g_api->enable_hooks(g_mod, hook_vc);
-    g_api->log(g_mod, shake_mounted && shake_chase ? "Camera view matrices hooked (camera shake during nitro)."
-                      : shake_mounted || shake_chase ? "Only one camera view matrix could be hooked; camera shake works in some views."
-                      : "Could not hook the camera view matrices; no camera shake.");
-
-    void* fov_mounted = (void*)((uintptr_t)base + 0x10340F0);
-    void* fov_chase = (void*)((uintptr_t)base + 0x1034120);
-    FH2Hook* hook_fm = g_api->hook_function(g_mod, "CameraMounted::GetFov", fov_mounted, (void*)detour_fov_mounted, (void**)&g_orig_fov_mounted);
-    FH2Hook* hook_fc = g_api->hook_function(g_mod, "CameraFollow::GetFov", fov_chase, (void*)detour_fov_chase, (void**)&g_orig_fov_chase);
-    bool fov_mounted_on = hook_fm && g_api->enable_hooks(g_mod, hook_fm);
-    bool fov_chase_on = hook_fc && g_api->enable_hooks(g_mod, hook_fc);
-    g_api->log(g_mod, fov_mounted_on && fov_chase_on ? "Camera field of view hooked (wider FOV during nitro)."
-                      : fov_mounted_on || fov_chase_on ? "Only one camera's field of view could be hooked; the wider FOV works in some views."
-                      : "Could not hook the camera field of view; no wider FOV.");
-
-    // Hook CarPresentation11 exhaust backfire prep (RVA 0x13B0DE6)
-    void* backfire_call = (void*)((uintptr_t)base + 0x13B0DE6);
-    FH2Hook* hook_bf = g_api->hook_call(g_mod, "CarPresentation11::BackfirePrep", backfire_call, (void*)detour_backfire_prep, (void**)&g_orig_backfire_prep);
-    if (hook_bf) {
-        if (g_api->enable_hooks(g_mod, hook_bf)) {
-            g_api->log(g_mod, "CarPresentation11 exhaust backfire flame hook enabled successfully!");
-        } else {
-            g_api->log(g_mod, "Failed to enable CarPresentation11 backfire hook.");
-        }
-    } else {
-        g_api->log(g_mod, "Failed to create CarPresentation11 backfire hook.");
-    }
-
-    // Hook HUDStatusSpeedometer gauge update (RVA 0xAD6070) for dynamic NOS gauge fuel display
-    void* speedo_call = (void*)((uintptr_t)base + 0xad6070);
-    FH2Hook* hook_sp = g_api->hook_function(g_mod, "HUDStatusSpeedometer::UpdateGauges", speedo_call, (void*)detour_speedo_tick, (void**)&g_orig_speedo_tick);
-    if (hook_sp) {
-        if (g_api->enable_hooks(g_mod, hook_sp)) {
-            g_api->log(g_mod, "HUDStatusSpeedometer hook enabled for dynamic NOS gauge decrease/refill!");
-        } else {
-            g_api->log(g_mod, "Failed to enable HUDStatusSpeedometer hook.");
-        }
-    } else {
-        g_api->log(g_mod, "Failed to create HUDStatusSpeedometer hook.");
-    }
+    }).detach();
 
     auto last_time = std::chrono::steady_clock::now();
     float active_duration = 0.0f;
@@ -1714,7 +1676,8 @@ static void nitro_worker_thread() {
         // Map or Loading) and the HUD speedometer is ticking (not Garage or a car meet lobby).
         uint64_t now_ms = GetTickCount64();
         bool physics_active = (now_ms - g_last_physics_tick.load()) < 200;
-        bool driving = physics_active && (now_ms - g_last_speedo_tick.load()) < 200;
+        // FH3: no speedometer hook yet, so "driving" is the player's car being simulated
+        bool driving = physics_active && (now_ms - g_player_pos_tick.load()) < 200;
 
         if (g_refund_on_rewind.load() || g_refill_on_start.load())
             nitro_hud_events(physics_active, (now_ms - g_last_speedo_tick.load()) < 200, now_ms);
@@ -2010,17 +1973,18 @@ static int nitro_percent() {
 // the export keeps its old name so anything that already calls it keeps working
 extern "C" __declspec(dllexport) int FnFNitro_GetNitroPercent() { return nitro_percent(); }
 
-FH2MOD_EXPORT int fh2mod_init(const FH2ModApi* api) {
+FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     g_api = api;
 
-    FH2ModInfo info{};
+    FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0";
-    info.github_repo      = "Levilente/NitroSystem-II";
-    info.platform_version = FH2MOD_PLATFORM_VERSION;
-    info.check_updates    = 1;
-    info.description      = "Fast & Furious Nitro for Forza Horizon 2 - a Nitrous Kit upgrade (3 stages) to buy per car (Engine)";
+    info.version          = "2.0.0-fh3.1";
+    info.github_repo      = nullptr;   // the FH3 port has no releases yet
+    info.platform_version = FH3MOD_PLATFORM_VERSION;
+    info.check_updates    = 0;
+    info.description      = "Fast & Furious Nitro, ported from Forza Horizon 2. Hold LB to boost. Early FH3 build: no garage kit, flames or gauge yet.";
+    info.offline_only     = 1;
     
     g_mod = api->register_mod(&info);
     if (!g_mod) return 1;
@@ -2031,15 +1995,23 @@ FH2MOD_EXPORT int fh2mod_init(const FH2ModApi* api) {
     init_paths();
     load_config();
     // The garage upgrade (the Nitrous Kit part). Without it the mod has no way to know a car owns nitrous.
-    if (!nu_init(api, g_mod, g_ini_path, (int)(g_duration.load() + 0.5f)))
-        api->log(g_mod, "The nitrous kit upgrade could not be set up (platform too old?): no car will have nitro.");
-    apply_hud_theme();   // before the game first reads the HUD files
-    apply_backfire_effect();
-    remove_legacy_files();
+    // FH3: the garage upgrade isn't ported yet. Every car gets the stage in [FH3] Stage (1-3, default 2), with the
+    // boosts from [Upgrade] as before.
+    nu_load_config(g_ini_path, (int)(g_duration.load() + 0.5f));
+    {
+        int stage = (int)GetPrivateProfileIntW(L"FH3", L"Stage", 2, g_ini_path);
+        if (stage < 0 || stage > 3) stage = 2;
+        wchar_t v[4] = {(wchar_t)(L'0' + stage), 0};
+        WritePrivateProfileStringW(L"FH3", L"Stage", v, g_ini_path);
+        nu_cur_level = stage;
+        char msg[96];
+        snprintf(msg, sizeof msg, "FH3 build: every car has Nitrous Kit stage %d ([FH3] Stage in the ini), boost %.1fx", stage, nu_boost(stage));
+        api->log(g_mod, msg);
+    }
 
     // Register In-Game Settings (Pause > Settings > MODS) with loaded values
     if (api->api_version >= 4) {
-        FH2Setting s_enable{};
+        FH3Setting s_enable{};
         s_enable.size        = sizeof(s_enable);
         s_enable.key         = "NitroEnabled";
         s_enable.label       = "Nitro System";
@@ -2048,7 +2020,7 @@ FH2MOD_EXPORT int fh2mod_init(const FH2ModApi* api) {
         s_enable.on_change   = on_setting_changed;
         api->add_setting(g_mod, &s_enable);
 
-        FH2Setting s_debug{};
+        FH3Setting s_debug{};
         s_debug.size        = sizeof(s_debug);
         s_debug.key         = "DebugOverlay";
         s_debug.label       = "Nitro Debug Overlay";
@@ -2057,7 +2029,7 @@ FH2MOD_EXPORT int fh2mod_init(const FH2ModApi* api) {
         s_debug.on_change   = on_setting_changed;
         api->add_setting(g_mod, &s_debug);
 
-        FH2Setting s_backfire{};
+        FH3Setting s_backfire{};
         s_backfire.size          = sizeof(s_backfire);
         s_backfire.key           = "BackfireOnAllCars";
         s_backfire.label         = "Backfire on All Cars";
@@ -2067,7 +2039,7 @@ FH2MOD_EXPORT int fh2mod_init(const FH2ModApi* api) {
         s_backfire.on_change     = on_setting_changed;
         api->add_setting(g_mod, &s_backfire);
 
-        FH2Setting s_refill{};
+        FH3Setting s_refill{};
         s_refill.size        = sizeof(s_refill);
         s_refill.key         = "RefillOnRaceStart";
         s_refill.label       = "Refill Nitro on Race Start";
@@ -2076,7 +2048,7 @@ FH2MOD_EXPORT int fh2mod_init(const FH2ModApi* api) {
         s_refill.on_change   = on_setting_changed;
         api->add_setting(g_mod, &s_refill);
 
-        FH2Setting s_rewind{};
+        FH3Setting s_rewind{};
         s_rewind.size        = sizeof(s_rewind);
         s_rewind.key         = "RefundOnRewind";
         s_rewind.label       = "Refund Nitro on Rewind";
@@ -2085,7 +2057,7 @@ FH2MOD_EXPORT int fh2mod_init(const FH2ModApi* api) {
         s_rewind.on_change   = on_setting_changed;
         api->add_setting(g_mod, &s_rewind);
 
-        FH2Setting s_rumble{};
+        FH3Setting s_rumble{};
         s_rumble.size        = sizeof(s_rumble);
         s_rumble.key         = "Rumble";
         s_rumble.label       = "Nitro Controller Rumble";
@@ -2094,7 +2066,7 @@ FH2MOD_EXPORT int fh2mod_init(const FH2ModApi* api) {
         s_rumble.on_change   = on_setting_changed;
         api->add_setting(g_mod, &s_rumble);
 
-        FH2Setting s_hide{};
+        FH3Setting s_hide{};
         s_hide.size          = sizeof(s_hide);
         s_hide.key           = "HudHide";
         s_hide.label         = "Hide Nitro Gauge Without Kit (after a restart)";
@@ -2105,14 +2077,14 @@ FH2MOD_EXPORT int fh2mod_init(const FH2ModApi* api) {
 
         if (api->api_version >= 5) {
             // Sliders can only show numbers, so the button is picked by number (listed in the description).
-            FH2Setting s_button{};
+            FH3Setting s_button{};
             s_button.size          = sizeof(s_button);
             s_button.key           = "NitroButton";
             s_button.label         = "Nitro Button";
             s_button.description   = "1 LB, 2 RB, 3 A, 4 B, 5 X, 6 Y, 7 LS click, 8 RS click, 9 D-Pad Up, 10 D-Pad Down, "
                                      "11 D-Pad Left, 12 D-Pad Right, 13 Back, 14 Start, 15 LT, 16 RT. Pick one the game "
                                      "doesn't use while driving. Applies right away.";
-            s_button.kind          = FH2_SETTING_SLIDER;
+            s_button.kind          = FH3_SETTING_SLIDER;
             s_button.min           = 1.0f;
             s_button.max           = (float)(sizeof(k_buttons) / sizeof(k_buttons[0]));
             s_button.step          = 1.0f;
@@ -2122,12 +2094,12 @@ FH2MOD_EXPORT int fh2mod_init(const FH2ModApi* api) {
             s_button.on_slide      = on_slider_changed;
             api->add_setting(g_mod, &s_button);
 
-            FH2Setting s_hud{};
+            FH3Setting s_hud{};
             s_hud.size          = sizeof(s_hud);
             s_hud.key           = "HudTheme";
             s_hud.label         = "HUD Theme";
             s_hud.description   = "1 Original (yellow NOS bar), 2 Fast & Furious (cyan NOS bar, gears and assist icons).";
-            s_hud.kind          = FH2_SETTING_SLIDER;
+            s_hud.kind          = FH3_SETTING_SLIDER;
             s_hud.min           = 1.0f;
             s_hud.max           = 2.0f;
             s_hud.step          = 1.0f;
@@ -2138,12 +2110,12 @@ FH2MOD_EXPORT int fh2mod_init(const FH2ModApi* api) {
             s_hud.on_slide      = on_slider_changed;
             api->add_setting(g_mod, &s_hud);
 
-            FH2Setting s_dur{};
+            FH3Setting s_dur{};
             s_dur.size          = sizeof(s_dur);
             s_dur.key           = "Duration";
             s_dur.label         = "Nitro Tank Capacity (sec)";
             s_dur.description   = "Total seconds of continuous boost available in a full tank (5 s by default).";
-            s_dur.kind          = FH2_SETTING_SLIDER;
+            s_dur.kind          = FH3_SETTING_SLIDER;
             s_dur.min           = 5.0f;
             s_dur.max           = 60.0f;
             s_dur.step          = 1.0f;
@@ -2153,12 +2125,12 @@ FH2MOD_EXPORT int fh2mod_init(const FH2ModApi* api) {
             s_dur.on_slide      = on_slider_changed;
             api->add_setting(g_mod, &s_dur);
 
-            FH2Setting s_buildup{};
+            FH3Setting s_buildup{};
             s_buildup.size          = sizeof(s_buildup);
             s_buildup.key           = "BuildupTime";
             s_buildup.label         = "Nitro Buildup Time (sec)";
             s_buildup.description   = "Time taken to ramp up to full boost torque (Spire default: 0.5s).";
-            s_buildup.kind          = FH2_SETTING_SLIDER;
+            s_buildup.kind          = FH3_SETTING_SLIDER;
             s_buildup.min           = 0.1f;
             s_buildup.max           = 2.0f;
             s_buildup.step          = 0.1f;
@@ -2168,12 +2140,12 @@ FH2MOD_EXPORT int fh2mod_init(const FH2ModApi* api) {
             s_buildup.on_slide      = on_slider_changed;
             api->add_setting(g_mod, &s_buildup);
 
-            FH2Setting s_recharge{};
+            FH3Setting s_recharge{};
             s_recharge.size          = sizeof(s_recharge);
             s_recharge.key           = "RechargeRate";
             s_recharge.label         = "Nitro Recharge Rate";
             s_recharge.description   = "Seconds of nitro restored per second while not boosting.";
-            s_recharge.kind          = FH2_SETTING_SLIDER;
+            s_recharge.kind          = FH3_SETTING_SLIDER;
             s_recharge.min           = 0.0f;
             s_recharge.max           = 1.0f;
             s_recharge.step          = 0.1f;
@@ -2183,12 +2155,12 @@ FH2MOD_EXPORT int fh2mod_init(const FH2ModApi* api) {
             s_recharge.on_slide      = on_slider_changed;
             api->add_setting(g_mod, &s_recharge);
 
-            FH2Setting s_volume{};
+            FH3Setting s_volume{};
             s_volume.size          = sizeof(s_volume);
             s_volume.key           = "SoundVolume";
             s_volume.label         = "Nitro Sound Volume";
             s_volume.description   = "Volume of the boost and stop sounds. The game's own volume sliders don't change them.";
-            s_volume.kind          = FH2_SETTING_SLIDER;
+            s_volume.kind          = FH3_SETTING_SLIDER;
             s_volume.min           = 0.0f;
             s_volume.max           = 1.0f;
             s_volume.step          = 0.05f;
@@ -2198,12 +2170,12 @@ FH2MOD_EXPORT int fh2mod_init(const FH2ModApi* api) {
             s_volume.on_slide      = on_slider_changed;
             api->add_setting(g_mod, &s_volume);
 
-            FH2Setting s_shake{};
+            FH3Setting s_shake{};
             s_shake.size          = sizeof(s_shake);
             s_shake.key           = "CameraShake";
             s_shake.label         = "Nitro Camera Shake";
             s_shake.description   = "How much the camera shakes while Nitro is active, in the driver, hood, bumper and chase views. 0 turns it off.";
-            s_shake.kind          = FH2_SETTING_SLIDER;
+            s_shake.kind          = FH3_SETTING_SLIDER;
             s_shake.min           = 0.0f;
             s_shake.max           = 1.0f;
             s_shake.step          = 0.05f;
@@ -2213,12 +2185,12 @@ FH2MOD_EXPORT int fh2mod_init(const FH2ModApi* api) {
             s_shake.on_slide      = on_slider_changed;
             api->add_setting(g_mod, &s_shake);
 
-            FH2Setting s_fov{};
+            FH3Setting s_fov{};
             s_fov.size          = sizeof(s_fov);
             s_fov.key           = "FovBoost";
             s_fov.label         = "Nitro Wider FOV";
             s_fov.description   = "How much wider the field of view gets while Nitro is active, in the driver, hood, bumper and chase views. 0 turns it off.";
-            s_fov.kind          = FH2_SETTING_SLIDER;
+            s_fov.kind          = FH3_SETTING_SLIDER;
             s_fov.min           = 0.0f;
             s_fov.max           = 0.3f;
             s_fov.step          = 0.01f;
@@ -2228,7 +2200,7 @@ FH2MOD_EXPORT int fh2mod_init(const FH2ModApi* api) {
             s_fov.on_slide      = on_slider_changed;
             api->add_setting(g_mod, &s_fov);
 
-            FH2Setting s_vig_on{};
+            FH3Setting s_vig_on{};
             s_vig_on.size          = sizeof(s_vig_on);
             s_vig_on.key           = "VignetteEnabled";
             s_vig_on.label         = "Nitro Blue Vignette";
@@ -2237,7 +2209,7 @@ FH2MOD_EXPORT int fh2mod_init(const FH2ModApi* api) {
             s_vig_on.on_change     = on_setting_changed;
             api->add_setting(g_mod, &s_vig_on);
 
-            FH2Setting s_sl_on{};
+            FH3Setting s_sl_on{};
             s_sl_on.size          = sizeof(s_sl_on);
             s_sl_on.key           = "SpeedLinesEnabled";
             s_sl_on.label         = "Nitro Speed Lines";
