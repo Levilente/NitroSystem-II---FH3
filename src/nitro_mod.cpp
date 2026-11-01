@@ -1506,6 +1506,7 @@ static void fh3_walk_for_positions(std::vector<uintptr_t> roots, float x, float 
     }
     std::vector<int> depth(nodes.size(), 0);
     int hits = 0;
+    uintptr_t first_hit_addr = 0;
     auto path = [&](int idx, int hit_off) {
         char b[600]; int n = 0;
         std::vector<int> chain;
@@ -1516,15 +1517,16 @@ static void fh3_walk_for_positions(std::vector<uintptr_t> roots, float x, float 
         snprintf(b + n, sizeof b - n, " : at +0x%X (node %p)", hit_off, (void*)nodes[idx].p);
         g_api->log(g_mod, b);
     };
-    for (size_t i = 0; i < nodes.size() && nodes.size() < 40000 && hits < 12; ++i) {
+    for (size_t i = 0; i < nodes.size() && nodes.size() < 40000 && hits < 40; ++i) {
         const uint8_t* base = (const uint8_t*)nodes[i].p;
         size_t len = 0x800;
         if (!readable_ptr(base, len)) { len = 0x200; if (!readable_ptr(base, len)) continue; }
-        for (size_t o = 0; o + 12 <= len && hits < 12; o += 4) {
+        for (size_t o = 0; o + 12 <= len && hits < 40; o += 4) {
             const float* f = (const float*)(base + o);
             if ((fabsf(f[0] - x) < 1e-4f && fabsf(f[1] - y) < 1e-4f && fabsf(f[2] - z) < 1e-4f) ||
                 (fabsf(f[0] - x2) < 1e-4f && fabsf(f[1] - y2) < 1e-4f && fabsf(f[2] - z2) < 1e-4f)) {
-                path((int)i, (int)o);
+                if (!first_hit_addr) first_hit_addr = nodes[i].p + o;
+                if (hits < 3) path((int)i, (int)o);
                 ++hits;
             }
         }
@@ -1537,9 +1539,43 @@ static void fh3_walk_for_positions(std::vector<uintptr_t> roots, float x, float 
             depth.push_back(depth[i] + 1);
         }
     }
-    char b[160];
+    char b[1200];
     snprintf(b, sizeof b, "tip position search done: %zu objects visited, %d hits", nodes.size(), hits);
     g_api->log(g_mod, b);
+    if (first_hit_addr) {
+        // the hit is the position (floats 12..14) of a 4x4 matrix: extend over the run of consecutive valid matrices
+        uintptr_t m = first_hit_addr - 0x30, lo = m, hi = m;
+        while (readable_ptr((void*)(lo - 0x40), 0x40) && fh3_tip_valid((const uint8_t*)(lo - 0x40)) && m - lo < 0x40 * 32) lo -= 0x40;
+        while (readable_ptr((void*)(hi + 0x40), 0x40) && fh3_tip_valid((const uint8_t*)(hi + 0x40)) && hi - m < 0x40 * 32) hi += 0x40;
+        int n = snprintf(b, sizeof b, "tip matrices: run of %d valid matrices from %p to %p (the hit is number %d):", (int)((hi - lo) / 0x40) + 1, (void*)lo, (void*)hi, (int)((m - lo) / 0x40));
+        for (uintptr_t a = lo; a <= hi && n < (int)sizeof b - 80; a += 0x40) {
+            const float* f = (const float*)a;
+            n += snprintf(b + n, sizeof b - n, " [%d] %.2f,%.2f,%.2f", (int)((a - lo) / 0x40), f[12], f[13], f[14]);
+        }
+        g_api->log(g_mod, b);
+        // which pointer in the graph leads to the run (or just before / inside it)?
+        int found = 0;
+        for (size_t i = 0; i < nodes.size() && found < 8; ++i) {
+            const uint8_t* base = (const uint8_t*)nodes[i].p;
+            size_t len = 0x800;
+            if (!readable_ptr(base, len)) { len = 0x200; if (!readable_ptr(base, len)) continue; }
+            for (size_t o = 0; o + 8 <= len && found < 8; o += 8) {
+                uintptr_t v = *(const uintptr_t*)(base + o);
+                if (v + 0x400 >= lo && v <= hi + 0x40) {
+                    char t[600]; int k = 0;
+                    std::vector<int> chain;
+                    for (int c = (int)i; c >= 0; c = nodes[c].parent) chain.push_back(c);
+                    int root = -1 - nodes[chain.back()].parent;
+                    k += snprintf(t + k, sizeof t - k, "pointer to the matrices: %s", names[root < 0 ? 0 : root > 2 ? 2 : root]);
+                    for (int q = (int)chain.size() - 2; q >= 0; --q) k += snprintf(t + k, sizeof t - k, " -> [+0x%X]", nodes[chain[q]].off);
+                    snprintf(t + k, sizeof t - k, " : at +0x%X holds %p (= run start %+lld bytes)", (int)o, (void*)v, (long long)((intptr_t)v - (intptr_t)lo));
+                    g_api->log(g_mod, t);
+                    ++found;
+                }
+            }
+        }
+        if (!found) g_api->log(g_mod, "pointer to the matrices: none in the walked objects");
+    }
 }
 
 static uint64_t detour_fh3_post(void* deferred, const void* tips) {
@@ -2755,7 +2791,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.19";
+    info.version          = "2.0.0-fh3.20";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
