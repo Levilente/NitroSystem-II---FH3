@@ -2020,6 +2020,21 @@ static uint64_t detour_fh3_carobj_update(void* self, float dt) {
     last = now;
     alignas(16) uint8_t msg[kFH3TipBytes];
     uint32_t mask = fh3_car_exhaust_tips(car, msg);
+    if (!mask) {
+        // The Car looks its exhaust locators up lazily (slot 78, game+0x18BBE20, which the game calls right before a backfire
+        // message): until the first backfire the eight pointers are empty. Ask it to, at most twice a second.
+        static uint64_t last_resolve = 0;
+        if (now - last_resolve >= 500 && readable_ptr(*(void**)car, 0x270 + 8)) {
+            last_resolve = now;
+            void** vt = *(void***)car;
+            typedef void (*ResolveFn)(void*);
+            ((ResolveFn)vt[0x270 / 8])(car);
+            mask = fh3_car_exhaust_tips(car, msg);
+            char b[160];
+            snprintf(b, sizeof b, "flames: the Car %p resolved its exhaust locators: mask %02X", car, mask);
+            g_api->log(g_mod, b);
+        }
+    }
     uint32_t forced = g_fh3_mask_forced.load();
     if (forced) {
         for (int i = 0; i < kFH3TipCount; ++i) if (!(forced >> i & 1)) msg[i * kFH3TipSize + kFH3TipFlag] = 0;
@@ -3208,7 +3223,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.34";
+    info.version          = "2.0.0-fh3.35";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
