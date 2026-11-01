@@ -595,6 +595,83 @@ static bool update_grounded(void* car, const float* vel, float dt, uint64_t now)
     return fall_ticks < 2 && grace == 0;
 }
 
+
+// ---- FH3 research: which CCarDynamics virtual runs every physics tick? -------------------------------------
+// Every slot of CCarDynamics' two vtables (in the exe's .data, game+0x4680EA0 with 17 slots and game+0x4680F30
+// with 474, the second used at this+0x4B0) is pointed at a small stub that counts the call, remembers rcx and jumps
+// on to the game's function. The log then lists the busiest slots and how far the car they ran on is from the
+// player, which tells the per-tick update apart.
+struct ProbeSlot { volatile uint64_t calls; volatile uint64_t last_this; uint64_t target; };
+static ProbeSlot* g_probe = nullptr;
+static int g_probe_count = 0;
+static const uintptr_t kFH3CarVtables[2] = {0x4680EA0, 0x4680F30};
+static const int kFH3CarVtableSlots[2] = {17, 474};
+static const int kFH3CarVtableThis[2] = {0, 0x4B0};
+
+static bool install_probe(char* base) {
+    g_probe_count = kFH3CarVtableSlots[0] + kFH3CarVtableSlots[1];
+    g_probe = (ProbeSlot*)VirtualAlloc(nullptr, sizeof(ProbeSlot) * g_probe_count, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    unsigned char* code = (unsigned char*)VirtualAlloc(nullptr, 48 * g_probe_count, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!g_probe || !code) return false;
+    int k = 0;
+    for (int v = 0; v < 2; ++v) {
+        uint64_t* vt = (uint64_t*)(base + kFH3CarVtables[v]);
+        DWORD old = 0;
+        if (!VirtualProtect(vt, 8 * kFH3CarVtableSlots[v], PAGE_READWRITE, &old)) return false;
+        for (int i = 0; i < kFH3CarVtableSlots[v]; ++i, ++k) {
+            ProbeSlot* ps = &g_probe[k];
+            ps->target = vt[i];
+            unsigned char* c = code + 48 * k;
+            // lock inc qword [calls] ; mov [last_this], rcx ; jmp [target]   (rip-relative, absolute via movabs to be safe)
+            int n = 0;
+            c[n++] = 0x50;                                              // push rax
+            c[n++] = 0x48; c[n++] = 0xB8; *(uint64_t*)(c + n) = (uint64_t)ps; n += 8;   // mov rax, ps
+            c[n++] = 0xF0; c[n++] = 0x48; c[n++] = 0xFF; c[n++] = 0x00;            // lock inc qword [rax]
+            c[n++] = 0x48; c[n++] = 0x89; c[n++] = 0x48; c[n++] = 0x08;            // mov [rax+8], rcx
+            c[n++] = 0x58;                                              // pop rax
+            c[n++] = 0xFF; c[n++] = 0x25; *(int32_t*)(c + n) = 0; n += 4;          // jmp [rip+0]
+            // the jump target follows (48-byte stubs: 26 bytes of code, then the target)
+            *(uint64_t*)(c + n) = ps->target;
+            vt[i] = (uint64_t)c;
+        }
+        VirtualProtect(vt, 8 * kFH3CarVtableSlots[v], old, &old);
+    }
+    FlushInstructionCache(GetCurrentProcess(), code, 48 * g_probe_count);
+    return true;
+}
+
+static void probe_report(char* base) {
+    static uint64_t prev[600];
+    struct Row { int k; uint64_t d; float dist; };
+    Row rows[600];
+    int nrows = 0;
+    for (int k = 0; k < g_probe_count; ++k) {
+        uint64_t c = g_probe[k].calls, d = c - prev[k];
+        prev[k] = c;
+        if (!d) continue;
+        int v = k < kFH3CarVtableSlots[0] ? 0 : 1;
+        float dist = -1.0f;
+        __try {
+            const char* obj = (const char*)g_probe[k].last_this - kFH3CarVtableThis[v];
+            const float* p = (const float*)(obj + kFH3CarPos);
+            float dx = p[0] - g_player_pos[0], dy = p[1] - g_player_pos[1], dz = p[2] - g_player_pos[2];
+            dist = sqrtf(dx * dx + dy * dy + dz * dz);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        rows[nrows++] = {k, d, dist};
+    }
+    for (int a = 0; a < nrows; ++a)
+        for (int b = a + 1; b < nrows; ++b)
+            if (rows[b].d > rows[a].d) { Row t = rows[a]; rows[a] = rows[b]; rows[b] = t; }
+    char line[1400];
+    int n = snprintf(line, sizeof line, "probe (calls in 5 s, slot = vtable/index -> game+rva, car distance from the player):");
+    for (int a = 0; a < nrows && a < 28 && n < (int)sizeof line - 80; ++a) {
+        int k = rows[a].k, v = k < kFH3CarVtableSlots[0] ? 0 : 1, i = v ? k - kFH3CarVtableSlots[0] : k;
+        n += snprintf(line + n, sizeof line - n, " | %c%d->%llX x%llu %.0fm", v ? 'S' : 'P', i,
+                      (unsigned long long)(g_probe[k].target - (uint64_t)base), (unsigned long long)rows[a].d, rows[a].dist);
+    }
+    g_api->log(g_mod, line);
+}
+
 // FH3: the per-tick update takes the time step as its third argument (xmm2); the others are passed through.
 typedef uint64_t (*FH3CarUpdateFn)(void* this_ptr, void* rdx, float dt, void* r9);
 static FH3CarUpdateFn g_orig_car_update = nullptr;
@@ -1605,10 +1682,8 @@ static void nitro_worker_thread() {
 
     // FH3: CCarDynamics' per-tick update (vtable slot 16) and CWorldCollObjMan::Update. The other FH2 hooks
     // (backfire, frame step, cameras, speedometer) aren't ported yet.
-    void* target_func = (void*)((uintptr_t)base + kFH3CarUpdate);
-    FH3Hook* hook = g_api->hook_function(g_mod, "CCarDynamics::Update", target_func, (void*)detour_cardynamics, (void**)&g_orig_car_update);
-    g_api->log(g_mod, hook && g_api->enable_hooks(g_mod, hook) ? "CCarDynamics::Update hooked (nitro push)."
-                                                               : "Could not hook CCarDynamics::Update: no nitro push.");
+    g_api->log(g_mod, install_probe((char*)base) ? "FH3 research: counting CCarDynamics' virtual calls (491 slots)."
+                                                 : "FH3 research: couldn't set up the call counting.");
 
     void* mgr_update = (void*)((uintptr_t)base + kFH3WorldUpdate);
     FH3Hook* hook_mgr = g_api->hook_function(g_mod, "CWorldCollObjMan::Update", mgr_update, (void*)detour_mgr_update, (void**)&g_orig_mgr_update);
@@ -1618,7 +1693,7 @@ static void nitro_worker_thread() {
     // FH3 research: what the hooks see, every 5 seconds for the first minutes (the offsets come from reading the
     // code, not from a running game).
     std::thread([] {
-        for (int i = 0; i < 24; ++i) {
+        for (int i = 0; i < 60; ++i) {
             Sleep(5000);
             char b[320];
             static uint64_t last_frames = 0;
@@ -1636,6 +1711,7 @@ static void nitro_worker_thread() {
                      (unsigned long long)g_boosted_frames.load());
             last_frames = frames;
             g_api->log(g_mod, b);
+            if (g_probe) probe_report((char*)g_game_base);
         }
     }).detach();
 
@@ -1979,7 +2055,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.1";
+    info.version          = "2.0.0-fh3.2";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
