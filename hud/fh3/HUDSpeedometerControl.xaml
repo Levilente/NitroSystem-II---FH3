@@ -1125,11 +1125,6 @@
                         </local:FZMaterial.Preset>
                     </local:FZMaterial>
 
-    <Canvas Width="312" Height="312" IsHitTestVisible="False" Opacity="{Binding RPMGaugeNumbers[20].YPos}">
-                        <Rectangle Canvas.Left="11.2" Canvas.Top="210.9" Width="40" Height="4" Fill="#E8000000" RenderTransformOrigin="0.5,0.5"><Rectangle.RenderTransform><RotateTransform Angle="160.9"/></Rectangle.RenderTransform></Rectangle>
-                        <Rectangle Canvas.Left="4.1" Canvas.Top="163.9" Width="40" Height="4" Fill="#E8000000" RenderTransformOrigin="0.5,0.5"><Rectangle.RenderTransform><RotateTransform Angle="181.8"/></Rectangle.RenderTransform></Rectangle>
-                        <Rectangle Canvas.Left="14.1" Canvas.Top="117.4" Width="40" Height="4" Fill="#E8000000" RenderTransformOrigin="0.5,0.5"><Rectangle.RenderTransform><RotateTransform Angle="202.7"/></Rectangle.RenderTransform></Rectangle>
-                    </Canvas>
                     <Canvas Width="312" Height="312" IsHitTestVisible="False" Opacity="{Binding RPMGaugeNumbers[20].YPos}">
                         <Path Stroke="#FFFFFFFF" StrokeThickness="2" Data="M 44.3,262.9 A 144.5,144.5 0 0 1 52.8,67.8"/>
                         <Path Stroke="#FFFFFFFF" StrokeThickness="2" Data="M 50.1,258.1 L 37.8,268.4"/>

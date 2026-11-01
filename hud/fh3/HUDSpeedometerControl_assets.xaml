@@ -1125,11 +1125,6 @@
                         </local:FZMaterial.Preset>
                     </local:FZMaterial>
 
-    <Canvas Width="312" Height="312" IsHitTestVisible="False" Opacity="{Binding RPMGaugeNumbers[20].YPos}">
-                        <Rectangle Canvas.Left="11.2" Canvas.Top="210.9" Width="40" Height="4" Fill="#E8000000" RenderTransformOrigin="0.5,0.5"><Rectangle.RenderTransform><RotateTransform Angle="160.9"/></Rectangle.RenderTransform></Rectangle>
-                        <Rectangle Canvas.Left="4.1" Canvas.Top="163.9" Width="40" Height="4" Fill="#E8000000" RenderTransformOrigin="0.5,0.5"><Rectangle.RenderTransform><RotateTransform Angle="181.8"/></Rectangle.RenderTransform></Rectangle>
-                        <Rectangle Canvas.Left="14.1" Canvas.Top="117.4" Width="40" Height="4" Fill="#E8000000" RenderTransformOrigin="0.5,0.5"><Rectangle.RenderTransform><RotateTransform Angle="202.7"/></Rectangle.RenderTransform></Rectangle>
-                    </Canvas>
                     <local:FZMaterial Height="256" Width="128" ImageSource="/ForzaUI;component/Textures/Data_Bound/SpireHUD/HUD_Nos_Outline_Radial_Bar.png"
                                       Opacity="{Binding RPMGaugeNumbers[20].YPos}" RenderTransformOrigin="0.5,0.5" IsHitTestVisible="False">
                         <local:FZMaterial.RenderTransform>

@@ -2044,6 +2044,24 @@ static void fh3_kit_sql(std::string& out) {
 // is written into the whole garage row (QuadTurbo=<id>, AspirationTypeId=4). Both are answered / cleaned here.
 static std::atomic<long> g_last_asp{1};
 static bool fh3_rewrite_kit(const char* z, size_t len, std::string& out) {
+    if (len > 40 && z[0] == 'S' && strncmp(z, "SELECT ManufacturerID FROM List_UpgradeEngineTurboQuad WHERE Id=", 64) == 0) {
+        long id = atol(z + 64);
+        if (id >= NU_ID_BASE && id < NU_ID_BASE + NU_LEVELS) { out = "SELECT -1 AS ManufacturerID"; return true; }
+        return false;
+    }
+    if (len > 60 && z[0] == 'S' && strncmp(z, "SELECT 1 From Profile0_Career_PurchasedParts WHERE GarageId = ", 62) == 0) {
+        const char* p = strstr(z, " AND PartEnum = 26 AND PartId = ");
+        if (p) {
+            long id = atol(p + 32);
+            if (id == NU_ID_BASE) { out = "SELECT 1"; return true; }          // our stock entry is always owned
+            if (id > NU_ID_BASE && id < NU_ID_BASE + NU_LEVELS) {            // bought at any manufacturer value
+                const char* m = strstr(p, " AND ManufacturerId");
+                out.assign(z, m ? (size_t)(m - z) : len);
+                return true;
+            }
+        }
+        return false;
+    }
     if (len > 40 && z[0] == 'S' && strncmp(z, "SELECT Level FROM List_UpgradeEngineTurboQuad WHERE EngineId=", 61) == 0) {
         const char* p = strstr(z, " AND Id=");
         long id = p ? atol(p + 8) : 0;
@@ -3438,7 +3456,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.47";
+    info.version          = "2.0.0-fh3.48";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
