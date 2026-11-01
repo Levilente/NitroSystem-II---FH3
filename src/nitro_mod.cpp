@@ -35,7 +35,7 @@
 // Not ported yet (left off in this build): the purchasable Nitrous Kit (every car gets [FH3] Stage from the ini),
 // exhaust flames, camera shake / FOV, the NOS gauge and HUD theme, the MODS page settings.
 #define NITRO_FH3 1
-static std::atomic<float> g_push_scale{1.0f};   // [FH3] PowerScale
+static std::atomic<float> g_push_scale{2.0f};   // [FH3] PowerScale
 static const uintptr_t kFH3CarUpdate   = 0x1D1E300;
 static const uintptr_t kFH3WorldUpdate = 0x425D40;
 static const int kFH3MgrPlayerPos = 0x520;
@@ -2215,7 +2215,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.10";
+    info.version          = "2.0.0-fh3.11";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
@@ -2241,13 +2241,13 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
         WritePrivateProfileStringW(L"FH3", L"Stage", v, g_ini_path);
         nu_cur_level = stage;
         wchar_t buf[32] = {};
-        // [FH3] PowerScale: 1 = nitro multiplies the engine's torque by the stage's boost (1.2 / 1.4 / 1.6x);
-        // 2 doubles the extra, 0.5 halves it. (PushScale was the old, constant-push setting.)
+        // [FH3] PowerScale: the extra torque is (boost - 1) x PowerScale, so the default 2 gives +40 / +80 / +120%
+        // torque on stages 1 / 2 / 3 (1 would be the bare 1.2 / 1.4 / 1.6x; tested 1 Nov: 1 felt weak). (PushScale was the old, constant-push setting.)
         WritePrivateProfileStringW(L"FH3", L"PushScale", nullptr, g_ini_path);
         GetPrivateProfileStringW(L"FH3", L"PowerScale", L"", buf, 32, g_ini_path);
-        float scale = buf[0] ? (float)_wtof(buf) : 1.0f;
-        if (!(scale > 0.0f && scale <= 5.0f)) scale = 1.0f;
-        if (!buf[0]) WritePrivateProfileStringW(L"FH3", L"PowerScale", L"1.0", g_ini_path);
+        float scale = buf[0] ? (float)_wtof(buf) : 2.0f;
+        if (!(scale > 0.0f && scale <= 5.0f)) scale = 2.0f;
+        if (!buf[0]) WritePrivateProfileStringW(L"FH3", L"PowerScale", L"2.0", g_ini_path);
         g_push_scale.store(scale);
         // which per-car torque scale nitro multiplies: 0x1198 (the engine's output, default) or 0x10CC
         int field = (int)GetPrivateProfileIntW(L"FH3", L"TorqueField", 0x1198, g_ini_path);
