@@ -18,3 +18,8 @@ Every car gets the stage in `[FH3] Stage` (default 2). The log prints an "FH3 ch
 ## Still to port
 Garage Nitrous Kit (database + upgrade UI), exhaust flames (CarPresentation11 backfire), camera shake / FOV, NOS gauge + HUD theme
 (HUDStatusSpeedometer and FH3's own speedometer XAML), settings on the MODS page.
+
+## Exhaust flames (research)
+- CCarPresentationDeferred (vt 0x468B058) slot 93 = 0x1DFD9C0(deferred, tips[0x280]): queues the backfire to the presentation thread (handler 0x1DC9D60).
+- CarPresentation (vt 0x468E848 / 0x46902E0) slot 93 = 0x1E741B0(pres, tips): copies to pres+0x1090 (8 x 0x50, fire byte +0x40), spawns "BackFireInstance%d"/"car_backfire" where pres+0xF08+0x10*N is empty; timer object pres+0x1520.
+- The mod posts its own backfire through the deferred slot on the game's posting thread while nitro burns.
