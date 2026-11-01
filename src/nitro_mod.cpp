@@ -2053,7 +2053,6 @@ static bool fh3_rewrite_kit(const char* z, size_t len, std::string& out) {
         const char* p = strstr(z, " AND PartEnum = 26 AND PartId = ");
         if (p) {
             long id = atol(p + 32);
-            if (id == NU_ID_BASE) { out = "SELECT 1"; return true; }          // our stock entry is always owned
             if (id > NU_ID_BASE && id < NU_ID_BASE + NU_LEVELS) {            // bought at any manufacturer value
                 const char* m = strstr(p, " AND ManufacturerId");
                 out.assign(z, m ? (size_t)(m - z) : len);
@@ -2136,6 +2135,21 @@ static int detour_prepare(void* db, const char* z, int n, unsigned fl, void* old
             const char* w = strstr(z, " WHERE Id=");   // the driven car's stats are saved: that is its garage id
             long gid = w ? atol(w + 10) : 0;
             if (gid > 0 && (unsigned)gid != nu_active_garage && !g_force_stage) { nu_activate((unsigned)gid); fh3_save_last_garage((unsigned)gid); }
+        }
+        if (len > 60 && z[0] == 'S' && !t_in_repair && g_game_base && strncmp(z, "SELECT 1 From Profile0_Career_PurchasedParts WHERE GarageId = ", 62) == 0 &&
+            strstr(z, " AND PartEnum = 26 AND PartId = 900470 ")) {
+            // our stock entry: give the garage a real "bought" row once, then let the game ask its own question
+            long gid = atol(z + 62);
+            if (gid > 0) {
+                char q[400];
+                snprintf(q, sizeof q, "INSERT INTO Profile0_Career_PurchasedParts (GarageId, PartEnum, PartId, ManufacturerId, PricePaid) SELECT %ld, 26, 900470, -1, 0 WHERE NOT EXISTS (SELECT 1 FROM Profile0_Career_PurchasedParts WHERE GarageId = %ld AND PartEnum = 26 AND PartId = 900470)", gid, gid);
+                t_in_repair = true;
+                int r = ((FH3ExecFn)((uintptr_t)g_game_base + 0x421D0))(db, q, nullptr, nullptr, nullptr);
+                t_in_repair = false;
+                static std::atomic<int> lg{0};
+                if (lg.fetch_add(1) < 4 && g_api && g_mod) { char b[96]; snprintf(b, sizeof b, "kit: stock row for garage %ld, exec returned %d", gid, r); g_api->log(g_mod, b); }
+            }
+            return fh3_prep(db, z, n, fl, old, pp, tail);
         }
         std::string kitq;
         const char* use = fh3_rewrite_kit(z, len, kitq) ? kitq.c_str() : nu_rewrite(z, len);
@@ -3470,7 +3484,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.50";
+    info.version          = "2.0.0-fh3.51";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
