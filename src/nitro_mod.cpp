@@ -1714,6 +1714,18 @@ static uint64_t detour_fh3_routine(void* pres, const void* tips, void* r8, void*
     return g_orig_fh3_routine(pres, tips, r8, r9);
 }
 
+// The backfire post reads the arena it allocates the message from out of the presentation (+0x8 of the outer object).
+// After a car swap the presentation we remember is freed, and the post faults on it: check it is still the live
+// presentation (vtable, arena) before every call of the game's function.
+static bool fh3_deferred_alive(void* deferred) {
+    char* outer = (char*)deferred - 0x10;
+    if (!readable_ptr(outer, 0x20)) return false;
+    uintptr_t vt = *(uintptr_t*)deferred - (uintptr_t)g_game_base;
+    if (vt != kFH3DeferredVtable && vt != kFH3DeferredVtable2) return false;
+    void* arena = *(void**)(outer + 8);
+    return (uintptr_t)arena > 0x10000 && (uintptr_t)arena < 0x7FFFFFFF0000ull && readable_ptr(arena, 0x30);
+}
+
 // While nitro burns, post a backfire on the player's car every 40 ms (the routine only spawns on tips whose last
 // flame has finished, so this keeps them burning). Runs on the thread the game posts its own backfires from.
 static void fh3_drive_flames() {
@@ -1726,6 +1738,16 @@ static void fh3_drive_flames() {
     last = now;
     void* deferred = g_fh3_player_deferred.load();
     if (!deferred) return;
+    if (!fh3_deferred_alive(deferred)) {             // the car was swapped or removed: its presentation is gone, learn the new one
+        g_fh3_pres.store(nullptr);
+        g_tipsrc_searched.store(false);
+        g_fh3_mask_pres.store(0);
+        g_fh3_player_deferred.store(nullptr);
+        g_fh3_mask.store(0);
+        g_fh3_tips_ok.store(false);
+        g_api->log(g_mod, "flames: the player's presentation went away (another car?); it will be found again.");
+        return;
+    }
     alignas(16) uint8_t msg[kFH3TipBytes];
     uint32_t mask = g_fh3_mask_forced.load();
     if (g_fh3_tips_ok.load()) {                      // the game has backfired on this car: its message is the truth
@@ -2925,7 +2947,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.26";
+    info.version          = "2.0.0-fh3.27";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
