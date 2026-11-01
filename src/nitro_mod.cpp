@@ -508,7 +508,10 @@ static void calibrate_position_offset(void* car, uint64_t now) {
 
 // True if this car is the one nearest the player position. Until the offset is learned, falls back to
 // the old behaviour (any simulated car).
+static std::atomic<void*> g_hud_player{nullptr};   // the car interface the HUD reads (rpm, gear): the player's, whatever is near
+static std::atomic<bool> g_hud_trusted{false};
 static bool is_player_car(void* car, uint64_t now) {
+    if (g_hud_trusted.load()) { void* h = g_hud_player.load(); return h && (char*)car + 0x4B0 == (char*)h; }
     int off = g_pos_offset.load();
     if (off < 0) return true;
     if (now - g_player_pos_tick.load() > 200) return false;
@@ -1998,12 +2001,37 @@ static uint32_t fh3_car_exhaust_tips(char* car, uint8_t* msg) {
     return mask;
 }
 
+typedef uint64_t (*HudCtrlFn)(void*, void*, void*, void*);
+static HudCtrlFn g_orig_hud_ctrl = nullptr;
+// The HUD speedometer controller (game+0xB26690, rcx = controller): +0x120/+0x128 is a weak pointer to the player's car.
+static uint64_t detour_hud_ctrl(void* c, void* a, void* b, void* d) {
+    uint64_t r = g_orig_hud_ctrl(c, a, b, d);
+    if (c && readable_ptr(c, 0x130)) {
+        void* obj = *(void**)((char*)c + 0x120);
+        void* cb = *(void**)((char*)c + 0x128);
+        g_hud_player.store(cb ? obj : nullptr);
+    }
+    return r;
+}
+
 static uint64_t detour_fh3_carobj_update(void* self, float dt) {
     uint64_t r = g_orig_fh3_carobj_update(self, dt);
     g_fh3_car_updates.fetch_add(1, std::memory_order_relaxed);
     char* car = (char*)self;
     char* dyn = (char*)g_player_cardynamics;
-    if (!car || !dyn || *(char**)(car + kFH3CarDynIface) != dyn + 0x4B0) return r;
+    if (!car) return r;
+    {   // who is the player's Car? The HUD knows. Trust it once it has agreed with the proximity rule a hundred times.
+        void* iface = *(void**)(car + kFH3CarDynIface);
+        void* hud = g_hud_player.load();
+        static int agree = 0, differ = 0;
+        const bool prox = dyn && iface == dyn + 0x4B0;
+        if (!g_hud_trusted.load() && prox && hud) {
+            if (iface == hud) { if (++agree >= 100 && differ == 0) { g_hud_trusted.store(true); g_api->log(g_mod, "flames: the HUD's player car matches the Car's interface; using it to tell the player's car from the others."); } }
+            else if (++differ <= 3) { char b[160]; snprintf(b, sizeof b, "flames: HUD car %p differs from the Car's interface %p (dynamics %p)", hud, iface, dyn); g_api->log(g_mod, b); }
+        }
+        if (g_hud_trusted.load()) { if (!hud || iface != hud) return r; dyn = (char*)iface - 0x4B0; }
+        else if (!prox) return r;
+    }
     void* deferred = *(void**)(car + kFH3CarDeferred);
     if (g_fh3_player_car.exchange(car) != car || g_fh3_player_deferred.load() != deferred) {
         g_fh3_player_deferred.store(deferred);
@@ -2838,6 +2866,11 @@ static void nitro_worker_thread() {
                                                         : "Could not hook the car physics tick: no nitro push.");
 
     install_fh3_flames((char*)base);
+    {
+        FH3Hook* hc = g_api->hook_function(g_mod, "HUD controller update", (char*)base + 0xB26690,
+                                           (void*)detour_hud_ctrl, (void**)&g_orig_hud_ctrl);
+        if (!(hc && g_api->enable_hooks(g_mod, hc))) { g_orig_hud_ctrl = nullptr; g_api->log(g_mod, "Could not hook the HUD controller: the player's car is told apart by position only."); }
+    }
     {   // the speedometer's per-frame update (rcx = HUDStatusSpeedometer, xmm1 = rpm): drives the NOS gauge
         FH3Hook* hs = g_api->hook_function(g_mod, "HUDStatusSpeedometer update", (char*)base + 0x10FD450,
                                            (void*)detour_speedo_tick, (void**)&g_orig_speedo_tick);
@@ -3001,7 +3034,7 @@ static void nitro_worker_thread() {
 
         if (g_depleted_lockout.load()) {
             // Require releasing LB AND recharging at least 2.0s before clearing lockout
-            if (!button_pressed && fuel >= 2.0f) {
+            if (!button_pressed && fuel > 0.0f) {
                 g_depleted_lockout.store(false);
             }
         }
@@ -3245,7 +3278,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.36";
+    info.version          = "2.0.0-fh3.37";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
