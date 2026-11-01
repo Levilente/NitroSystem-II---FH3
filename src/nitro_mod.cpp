@@ -1780,7 +1780,12 @@ static void install_fh3_flames(char* base) {
 typedef void* (*ViewMatrixFn)(void* camera, float* out);
 static ViewMatrixFn g_orig_view_mounted = nullptr;
 static ViewMatrixFn g_orig_view_chase = nullptr;
-static const uintptr_t k_shake_camera_vtables[] = {0x2E78120, 0x2E77EA8, 0x2E703B0, 0x2E783A0, 0x2E78610, 0x2E78880};
+// FH3 (same layout as FH2, found by comparing the vtables of Camera::CCamDriver / CCamHood / CCamBumperHigh / CCamFollow /
+// CCamFollowLow / CCamFollowHigh): view matrix at game+0x19BB310 (mounted) and game+0x19BAE50 (chase), field of view at
+// game+0x19BAB70 / game+0x19BABD0 (vtable slot 15).
+static const uintptr_t k_shake_camera_vtables[] = {0x463ACB0, 0x463A9E0, 0x4630430, 0x463AF88, 0x463B250, 0x463B518};
+static const uintptr_t kFH3ViewMounted = 0x19BB310, kFH3ViewChase = 0x19BAE50, kFH3FovMounted = 0x19BAB70, kFH3FovChase = 0x19BABD0;
+static std::atomic<uint32_t> g_cam_view_calls{0}, g_cam_view_shaken{0}, g_cam_fov_calls{0}, g_cam_fov_widened{0};
 
 // Nitro screen effects share one clock: an envelope that fades in over ~0.2s and out over ~0.4s while the nitro
 // burns, and a time that wraps every 1000s. Everything that reads them (camera shake, FOV, the HUD vignette) is a
@@ -1815,6 +1820,7 @@ static void shake_view_matrix(void* camera, float* m) {
     fx_state(&envelope, &t);
     if (envelope < 0.001f) return;
 
+    g_cam_view_calls.fetch_add(1, std::memory_order_relaxed);
     for (int i = 0; i < 12; ++i)
         if (!std::isfinite(m[i])) return;
     float* r0 = m; float* r1 = m + 4; float* r2 = m + 8;
@@ -1841,16 +1847,17 @@ static void shake_view_matrix(void* camera, float* m) {
     turn(r2, r0, yaw);
     turn(r2, r1, pitch);
     turn(r0, r1, roll);
+    g_cam_view_shaken.fetch_add(1, std::memory_order_relaxed);
 }
 
 static void* detour_view_mounted(void* camera, float* out) {
-    void* r = g_orig_view_mounted(camera, out);
+    void* r = g_orig_view_mounted ? g_orig_view_mounted(camera, out) : nullptr;
     shake_view_matrix(camera, out);
     return r;
 }
 
 static void* detour_view_chase(void* camera, float* out) {
-    void* r = g_orig_view_chase(camera, out);
+    void* r = g_orig_view_chase ? g_orig_view_chase(camera, out) : nullptr;
     shake_view_matrix(camera, out);
     return r;
 }
@@ -1873,6 +1880,7 @@ static float widen_fov(void* camera, float fov) {
     float envelope = 0.0f;
     fx_state(&envelope, nullptr);
     if (envelope < 0.001f) return fov;
+    g_cam_fov_widened.fetch_add(1, std::memory_order_relaxed);
     return fov * (1.0f + (std::min)(boost, 0.3f) * envelope);
 }
 
@@ -2517,6 +2525,24 @@ static void nitro_worker_thread() {
                                                         : "Could not hook the car physics tick: no nitro push.");
 
     install_fh3_flames((char*)base);
+    {
+        struct H { const char* name; uintptr_t rva; void* detour; void** orig; };
+        const H hooks[] = {
+            {"camera view (mounted)", kFH3ViewMounted, (void*)detour_view_mounted, (void**)&g_orig_view_mounted},
+            {"camera view (chase)", kFH3ViewChase, (void*)detour_view_chase, (void**)&g_orig_view_chase},
+            {"camera fov (mounted)", kFH3FovMounted, (void*)detour_fov_mounted, (void**)&g_orig_fov_mounted},
+            {"camera fov (chase)", kFH3FovChase, (void*)detour_fov_chase, (void**)&g_orig_fov_chase},
+        };
+        int ok = 0;
+        for (const H& h : hooks) {
+            FH3Hook* hk = g_api->hook_function(g_mod, h.name, (char*)base + h.rva, h.detour, h.orig);
+            if (hk && g_api->enable_hooks(g_mod, hk)) ++ok;
+            else *h.orig = nullptr;
+        }
+        char cm[100];
+        snprintf(cm, sizeof cm, "Camera hooks installed: %d of 4 (screen shake and wider field of view while nitro burns).", ok);
+        g_api->log(g_mod, cm);
+    }
 
     void* mgr_update = (void*)((uintptr_t)base + kFH3WorldUpdate);
     FH3Hook* hook_mgr = g_api->hook_function(g_mod, "CWorldCollObjMan::Update", mgr_update, (void*)detour_mgr_update, (void**)&g_orig_mgr_update);
@@ -2544,6 +2570,8 @@ static void nitro_worker_thread() {
                      g_meas_accel_plain.load(), g_meas_accel_boost.load(), g_engine_accel.load(), g_push_scale.load(), g_up_axis.load(),
                      (unsigned long long)g_boosted_frames.load());
             last_frames = frames;
+            g_api->log(g_mod, b);
+            snprintf(b, sizeof b, "camera: view calls %u (shaken %u), fov calls (widened %u)", g_cam_view_calls.load(), g_cam_view_shaken.load(), g_cam_fov_widened.load());
             g_api->log(g_mod, b);
             snprintf(b, sizeof b, "flames: posts %u (flagged %u, player's %u, thread %lu), routine runs %u (flagged %u, thread %lu), "
                      "player presentation %p at +0x%X, tips known %d, mask %02X (forced %02X), nitro flames posted %u, release thread %lu, queue calls %u (from the player car %u), presentation %p, pres mask %02X",
@@ -2897,7 +2925,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.25";
+    info.version          = "2.0.0-fh3.26";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
