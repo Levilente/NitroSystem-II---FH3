@@ -1332,6 +1332,76 @@ static void fh3_find_pres(void* deferred) {
     g_api->log(g_mod, b);
 }
 
+
+// ---- the presentation -> car link ----------------------------------------------------------------------------------
+// The CarPresentation keeps a pointer to its car (the car itself or its ref-counted interface at +0x4B0). Learned once
+// from a presentation known to be the player's (the first car while standing still, or the game's own backfire), it
+// then names the player's presentation exactly, after a car swap too, without looking at stacks.
+static std::atomic<int> g_fh3_link_off{-1};    // offset in the CarPresentation
+static std::atomic<int> g_fh3_link_off2{-1};   // offset behind that pointer (-1: the pointer itself is the car's)
+static std::atomic<int> g_fh3_link_delta{0};   // the value found is car + delta
+
+static bool fh3_link_matches(const char* pres, const char* car) {
+    int off = g_fh3_link_off.load(), off2 = g_fh3_link_off2.load();
+    if (off < 0 || !pres || !car || !readable_ptr(pres + off, 8)) return false;
+    uintptr_t v = *(const uintptr_t*)(pres + off);
+    if (off2 >= 0) {
+        if (v < 0x10000 || v > 0x7FFFFFFF0000ull || !readable_ptr((void*)(v + off2), 8)) return false;
+        v = *(const uintptr_t*)(v + off2);
+    }
+    return v == (uintptr_t)car + g_fh3_link_delta.load();
+}
+
+static void fh3_learn_link(const char* pres, const char* car, const char* why) {
+    static int logs = 0;
+    if (!pres || !car) return;
+    if (g_fh3_link_off.load() >= 0) {   // known: check it (a different car proves it again)
+        if (logs < 12) {
+            ++logs;
+            char b[200];
+            snprintf(b, sizeof b, "link (%s): presentation %p -> car %p: %s", why, pres, car, fh3_link_matches(pres, car) ? "confirmed" : "DOES NOT MATCH");
+            g_api->log(g_mod, b);
+        }
+        return;
+    }
+    int span = readable_ptr(pres, 0x2000) ? 0x2000 : readable_ptr(pres, 0x1000) ? 0x1000 : readable_ptr(pres, 0x800) ? 0x800 : 0;
+    char b[1200];
+    int n = snprintf(b, sizeof b, "link (%s): presentation %p, car %p, %X bytes:", why, pres, car, span);
+    int off = -1, off2 = -1, delta = 0;
+    const uintptr_t c = (uintptr_t)car;
+    for (int o = 0; o < span; o += 8) {
+        uintptr_t v = *(const uintptr_t*)(pres + o);
+        if (v >= c && v < c + 0x3000) {
+            int d = (int)(v - c);
+            if (n < (int)sizeof b - 40) n += snprintf(b + n, sizeof b - n, " [+0x%X = car+0x%X]", o, d);
+            if (off < 0 && (d == 0 || d == 0x4B0)) { off = o; delta = d; }
+        }
+    }
+    if (off < 0) {   // one pointer further
+        for (int o = 0; o < (span < 0x800 ? span : 0x800) && off < 0; o += 8) {
+            uintptr_t v = *(const uintptr_t*)(pres + o);
+            if (v < 0x10000 || v > 0x7FFFFFFF0000ull || (v & 7) || !readable_ptr((void*)v, 0x400)) continue;
+            for (int o2 = 0; o2 < 0x400; o2 += 8) {
+                uintptr_t w = *(const uintptr_t*)(v + o2);
+                if (w == c || w == c + 0x4B0) {
+                    off = o; off2 = o2; delta = (int)(w - c);
+                    if (n < (int)sizeof b - 50) n += snprintf(b + n, sizeof b - n, " [+0x%X -> +0x%X = car+0x%X]", o, o2, delta);
+                    break;
+                }
+            }
+        }
+    }
+    if (off >= 0) {
+        g_fh3_link_off2.store(off2);
+        g_fh3_link_delta.store(delta);
+        g_fh3_link_off.store(off);
+        n += snprintf(b + n, sizeof b - n, " -> using +0x%X%s", off, off2 >= 0 ? " (one pointer further)" : "");
+    } else {
+        n += snprintf(b + n, sizeof b - n, " -> no link");
+    }
+    g_api->log(g_mod, b);
+}
+
 // Forgets what was learned about the player's presentation (another car, or the presentation was freed).
 static void fh3_forget_player_pres() {
     g_fh3_pres.store(nullptr);
@@ -1347,7 +1417,27 @@ static uint64_t detour_fh3_queue(void* a, void* b, void* c, void* d, void* e, vo
     // Only until the player's presentation is known (then nothing here costs anything). The stack of a car update has the
     // player's car on it for several presentations while the car is moving, so the first hit is not trusted: the same
     // presentation has to be the only one hit on 5 samples in a row (one sample per clock tick, ~15 ms).
-    if (!g_fh3_player_deferred.load() && a && g_player_cardynamics) {
+    if (!g_fh3_player_deferred.load() && a && g_player_cardynamics && g_fh3_link_off.load() >= 0) {
+        // the link is known: any message to a presentation whose CarPresentation points at the player's car
+        if (readable_ptr((char*)a + 0x10, 0x10)) {
+            uintptr_t vt = *(uintptr_t*)((char*)a + 0x10) - (uintptr_t)g_game_base;
+            if (vt == kFH3DeferredVtable || vt == kFH3DeferredVtable2) {
+                char* pres = *(char**)((char*)a + 0x18);
+                if (pres && readable_ptr(pres, 8)) {
+                    uintptr_t pvt = *(uintptr_t*)pres - (uintptr_t)g_game_base;
+                    if ((pvt == kFH3PresVtables[0] || pvt == kFH3PresVtables[1]) && fh3_link_matches(pres, (char*)g_player_cardynamics)) {
+                        void* deferred = (char*)a + 0x10;
+                        g_fh3_player_deferred.store(deferred);
+                        g_fh3_post_tid.store(GetCurrentThreadId());
+                        g_fh3_pres.store(pres);
+                        char buf[160];
+                        snprintf(buf, sizeof buf, "flames: the player's presentation %p (CarPresentation %p) found through the link", deferred, (void*)pres);
+                        g_api->log(g_mod, buf);
+                    }
+                }
+            }
+        }
+    } else if (!g_fh3_player_deferred.load() && a && g_player_cardynamics) {
         static uint64_t last_try = 0;
         static void* cand = nullptr;
         static int cand_hits = 0;
@@ -1365,6 +1455,7 @@ static uint64_t detour_fh3_queue(void* a, void* b, void* c, void* d, void* e, vo
                     g_fh3_player_deferred.store(deferred);
                     g_fh3_post_tid.store(GetCurrentThreadId());
                     fh3_find_pres(deferred);
+                    fh3_learn_link((const char*)g_fh3_pres.load(), (const char*)g_player_cardynamics, "standing car");
                 }
             }
         }
@@ -1718,6 +1809,7 @@ static uint64_t detour_fh3_post(void* deferred, const void* tips) {
                 g_fh3_mask.store(0);
                 g_fh3_pres.store(nullptr);
                 fh3_find_pres(deferred);   // the CarPresentation (and its locators) of the presentation the game really posts to
+                fh3_learn_link((const char*)g_fh3_pres.load(), (const char*)g_player_cardynamics, "the game's backfire");
                 fh3_log_tips("player's car posts a backfire,", deferred, t);
             } else if (mask & ~g_fh3_mask.load()) {
                 fh3_log_tips("player's car backfires on new tips,", deferred, t);
@@ -1783,7 +1875,19 @@ static void fh3_drive_flames() {
         if (built_for != g_fh3_pres.load() || (!built_mask && now - built_tick > 1000)) {
             built_for = g_fh3_pres.load();
             built_tick = now;
-            if (!fh3_build_locator_tips(built, &built_mask)) {
+            bool built_ok = fh3_build_locator_tips(built, &built_mask);
+            {
+                static void* dumped = nullptr;
+                static int ndumps = 0;
+                if (built_ok && dumped != built_for && ndumps < 4) {
+                    dumped = built_for; ++ndumps;
+                    char b[120];
+                    snprintf(b, sizeof b, "locator tips: built mask %02X for CarPresentation %p:", built_mask, built_for);
+                    g_api->log(g_mod, b);
+                    fh3_dump_locators();
+                }
+            }
+            if (!built_ok) {
                 built_mask = 0;
                 static void* dumped_for = nullptr, *failing_for = nullptr;
                 static uint64_t failing_since = 0;
@@ -2975,7 +3079,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.30";
+    info.version          = "2.0.0-fh3.31";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
