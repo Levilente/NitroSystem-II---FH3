@@ -1587,17 +1587,26 @@ static void fh3_dump_locators() {
     int n = snprintf(b, sizeof b, "locators: object %p at presentation+0x7B0; qwords +0x2A0..+0x340:", (void*)M);
     for (int o = 0x2A0; o < 0x340; o += 8) n += snprintf(b + n, sizeof b - n, " %llX", (unsigned long long)*(uintptr_t*)(M + o));
     g_api->log(g_mod, b);
-    uintptr_t first = *(uintptr_t*)(M + 0x2C8);
-    for (int k = 0; k < 12; ++k) {
-        uintptr_t q = first + (uintptr_t)k * 0x1C0;
-        uintptr_t listed = k < 8 ? *(uintptr_t*)(M + 0x2C8 + 0x18 * k) : 0;
-        if (!readable_ptr((void*)q, 0x1C0)) { snprintf(b, sizeof b, "locators: block %d at %p unreadable", k, (void*)q); g_api->log(g_mod, b); continue; }
-        n = snprintf(b, sizeof b, "locators: block %d at %p (table pointer %p) valid matrices:", k, (void*)q, (void*)listed);
-        for (int o = 0; o + 0x40 <= 0x1C0 && n < (int)sizeof b - 60; o += 4) {
-            if (!fh3_tip_valid((const uint8_t*)q + o)) continue;
-            const float* f = (const float*)((const uint8_t*)q + o);
-            n += snprintf(b + n, sizeof b - n, " +0x%X(%.2f,%.2f,%.2f)", o, f[12], f[13], f[14]);
+    // the table at +0x2B0: entries of 0x18 bytes (control block vtable, counts, pointer to a 0x1C0-byte block). Names are looked
+    // for inside the block and behind its pointers.
+    if (!readable_ptr((void*)M, 0x700)) return;
+    for (int k = 0; k < 24; ++k) {
+        uintptr_t q = *(uintptr_t*)(M + 0x2B0 + 0x18 * k);
+        if (q < 0x10000 || !readable_ptr((void*)q, 0x1C0)) { snprintf(b, sizeof b, "locators: [%d] %p unreadable", k, (void*)q); g_api->log(g_mod, b); continue; }
+        const char* name = nullptr;
+        char nm[48] = "";
+        const uint8_t* bl = (const uint8_t*)q;
+        for (int o = 0; o + 12 < 0x1C0 && !name; o += 4) {
+            if (memcmp(bl + o, "carLocator", 10) == 0 || memcmp(bl + o, "Locator", 7) == 0) name = (const char*)bl + o;
         }
+        for (int o = 0; o + 8 <= 0x1C0 && !name; o += 8) {
+            uintptr_t v = *(const uintptr_t*)(bl + o);
+            if (v > 0x10000 && v < 0x7FFFFFFFFFFFull && readable_ptr((void*)v, 48) &&
+                (memcmp((void*)v, "carLocator", 10) == 0 || memcmp((void*)v, "Locator", 7) == 0)) name = (const char*)v;
+        }
+        if (name) { for (int i = 0; i < 40 && name[i] >= 32 && name[i] < 127; ++i) nm[i] = name[i]; }
+        const float* f = (const float*)(bl + 0x70);
+        snprintf(b, sizeof b, "locators: [%d] block %p name \"%s\" matrix %s pos %.2f,%.2f,%.2f", k, bl, nm, fh3_tip_valid(bl + 0x70) ? "valid" : "invalid", f[12], f[13], f[14]);
         g_api->log(g_mod, b);
     }
 }
@@ -2815,7 +2824,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.21";
+    info.version          = "2.0.0-fh3.22";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
