@@ -2035,10 +2035,48 @@ static void fh3_kit_sql(std::string& out) {
         snprintf(b, sizeof b, "INSERT OR REPLACE INTO Upgrades (id, TypeId, IsException, Name, Level, Description, IconPath, ImagePath) VALUES (%d, '%d', 0, '%s', %d, '%s', '%s', '%s');\n",
                  NU_UPGRADE_BASE + l, NU_TYPE_ID, names[l], l, l ? "Nitrous injection." : "No nitrous system fitted.", l ? icon : stock, l ? iconlg : stocklg);
         out += b;
-        snprintf(b, sizeof b, "INSERT OR REPLACE INTO List_UpgradeEngineTurboSingle (Id, EngineID, Level, IsStock, ManufacturerID, MassDiff, WeightDistDiff, Price, MomentInertia, MaxScale, PowerMaxScale, MinScale, PowerMinScale, RobScale, TorqueDropOffRPM0, TorqueDropOffRPM1, TorqueDropOffScale0, TorqueDropOffScale1) VALUES (%ld, %d, %d, %d, 0, 0.0, 0.0, %ld, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 9000.0, 15000.0, 1.0, 0.75);\n",
+        snprintf(b, sizeof b, "INSERT OR REPLACE INTO List_UpgradeEngineTurboQuad (Id, EngineID, Level, IsStock, ManufacturerID, Price, MomentInertia, MaxScale, PowerMaxScale, MinScale, PowerMinScale, RobScale, TorqueDropOffRPM0, TorqueDropOffRPM1, TorqueDropOffScale0, TorqueDropOffScale1) VALUES (%ld, %d, %d, %d, -1, %ld, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 9000.0, 15000.0, 1.0, 0.75);\n",
                  (long)(NU_ID_BASE + l), NU_MOTOR_ID, l, l == 0, l ? nu_cfg.price[l] : 0L);
         out += b;
     }
+}
+
+
+// Enum 26 is the game's Quad Turbo slot: its level query is per engine (our rows have no engine) and the install
+// is written into the whole garage row (QuadTurbo=<id>, AspirationTypeId=4). Both are answered / cleaned here.
+static std::atomic<long> g_last_asp{1};
+static bool fh3_rewrite_kit(const char* z, size_t len, std::string& out) {
+    if (len > 40 && z[0] == 'S' && strncmp(z, "SELECT Level FROM List_UpgradeEngineTurboQuad WHERE EngineId=", 61) == 0) {
+        const char* p = strstr(z, " AND Id=");
+        long id = p ? atol(p + 8) : 0;
+        if (id >= NU_ID_BASE && id < NU_ID_BASE + NU_LEVELS) { out = "SELECT " + std::to_string(id - NU_ID_BASE) + " AS Level"; return true; }
+        return false;
+    }
+    if (len > 60 && z[0] == 'U' && strncmp(z, "UPDATE Profile0_Career_Garage SET", 33) == 0) {
+        const char* asp = strstr(z, "AspirationTypeId=");
+        const char* q = strstr(z, "QuadTurbo=");
+        long id = q ? atol(q + 10) : 0;
+        const bool ours = id >= NU_ID_BASE && id < NU_ID_BASE + NU_LEVELS;
+        if (asp && !ours) { long v = atol(asp + 17); if (v > 0 && (v != 4 || id > 0)) g_last_asp.store(v); }   // 4 (quad) only counts with a real quad turbo id
+        if (!ours) return false;
+        const char* w = strstr(z, " WHERE Id=");
+        long gid = w ? atol(w + 10) : 0;
+        if (gid > 0) { nu_set_level(gid, nu_cur_ord, (int)(id - NU_ID_BASE)); if ((unsigned)gid != nu_active_garage && !g_force_stage) { nu_activate((unsigned)gid); fh3_save_last_garage((unsigned)gid); } }
+        std::string r(z, (size_t)(q - z));
+        r += "QuadTurbo=-1";
+        const char* rest = q + 10; while (*rest == '-' || (*rest >= '0' && *rest <= '9')) ++rest;
+        if (asp && asp > rest) {
+            r.append(rest, (size_t)(asp - rest));
+            r += "AspirationTypeId=" + std::to_string(g_last_asp.load());
+            const char* r2 = asp + 17; while (*r2 >= '0' && *r2 <= '9') ++r2;
+            r += r2;
+        } else r += rest;
+        out = r;
+        static std::atomic<int> logged{0};
+        if (logged.fetch_add(1) < 6 && g_api && g_mod) { char b[96]; snprintf(b, sizeof b, "kit: installed stage %ld on garage %ld", id - NU_ID_BASE, gid); g_api->log(g_mod, b); }
+        return true;
+    }
+    return false;
 }
 
 static int detour_prepare(void* db, const char* z, int n, unsigned fl, void* old, void** pp, const char** tail) {
@@ -2050,7 +2088,8 @@ static int detour_prepare(void* db, const char* z, int n, unsigned fl, void* old
             long gid = w ? atol(w + 10) : 0;
             if (gid > 0 && (unsigned)gid != nu_active_garage && !g_force_stage) { nu_activate((unsigned)gid); fh3_save_last_garage((unsigned)gid); }
         }
-        const char* use = nu_rewrite(z, len);
+        std::string kitq;
+        const char* use = fh3_rewrite_kit(z, len, kitq) ? kitq.c_str() : nu_rewrite(z, len);
         if (use != z) {
             if (z[0] == 'U' || strncmp(z, "SELECT PartTable", 16) == 0) {
                 long gid = 0; const char* g = strstr(z, "GarageId = "); if (!g) { g = strstr(z, "WHERE Id = "); if (g) gid = atol(g + 11); } else gid = atol(g + 11);
@@ -2066,7 +2105,7 @@ static int detour_prepare(void* db, const char* z, int n, unsigned fl, void* old
         const char* keys[] = {"UpgradeParts", "UpgradeTypes", "UpgradeAreas", "PurchasedParts", "Career_Garage SET", "List_UpgradeMotorParts", "NitroSystemII", "PartEnum = 26", "900470", "900471", "900472", "900473"};
         bool hit = false;
         for (const char* k : keys) if (strstr(z, k)) { hit = true; break; }
-        if (hit && (strncmp(z, "CREATE INDEX", 12) == 0 || strncmp(z, "CREATE TABLE", 12) == 0 || strstr(z, "WHERE 1=2") ||
+        if (hit && (strncmp(z, "SELECT 1 From Profile0_Career_PurchasedParts", 44) == 0 || strncmp(z, "CREATE INDEX", 12) == 0 || strncmp(z, "CREATE TABLE", 12) == 0 || strstr(z, "WHERE 1=2") ||
                     strstr(z, "filedb.") || strncmp(z, "INSERT INTO [", 13) == 0)) hit = false;   // startup copying, not the garage
         if (hit && left.fetch_sub(1) > 0) {
             char b[900];
@@ -3382,7 +3421,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.45";
+    info.version          = "2.0.0-fh3.46";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;

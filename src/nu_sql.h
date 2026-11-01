@@ -146,7 +146,7 @@ static int nu_stock_check(const char *in,size_t n){
    We read the choice from the id and turn the statement into one that changes nothing. */
 static int nu_update(const char *in,size_t n,NuBuf *b,int *level,long *garage){
     if(!nu_starts(in,n,"UPDATE "))return 0;
-    static const char K[]=" SET SingleTurbo = ";
+    static const char K[]=" SET QuadTurbo = ";
     const char *k=nu_find(in,n,K);
     if(!k)return 0;
     long id;int d=nu_num(k+sizeof K-1,in+n,&id);
@@ -157,7 +157,7 @@ static int nu_update(const char *in,size_t n,NuBuf *b,int *level,long *garage){
     const char *w=nu_find(k,(size_t)(in+n-k)," WHERE Id = ");
     if(w){long gv;if(nu_num(w+12,in+n,&gv))*garage=gv;}
     nu_add(b,in,(size_t)(k-in)+sizeof K-1);
-    nu_adds(b,"SingleTurbo");
+    nu_adds(b,"QuadTurbo");
     nu_add(b,k+sizeof K-1+d,n-(size_t)(k+sizeof K-1+d-in));
     return !b->bad;
 }
