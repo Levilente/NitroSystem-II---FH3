@@ -1332,23 +1332,57 @@ static void fh3_find_pres(void* deferred) {
     g_api->log(g_mod, b);
 }
 
+// Forgets what was learned about the player's presentation (another car, or the presentation was freed).
+static void fh3_forget_player_pres() {
+    g_fh3_pres.store(nullptr);
+    g_tipsrc_searched.store(false);
+    g_fh3_mask_pres.store(0);
+    g_fh3_player_deferred.store(nullptr);
+    g_fh3_mask.store(0);
+    g_fh3_tips_ok.store(false);
+}
+
 static uint64_t detour_fh3_queue(void* a, void* b, void* c, void* d, void* e, void* f, void* g, void* h) {
     g_fh3_queue_calls.fetch_add(1, std::memory_order_relaxed);
-    if (!g_fh3_player_deferred.load() && a && g_player_cardynamics && readable_ptr((char*)a + 0x10, 8) && fh3_stack_has_player(0x2000)) {
+    if (a && g_player_cardynamics && readable_ptr((char*)a + 0x10, 8)) {
         // the object's own vtable is either the class's (0x468B058) or the ref-counted wrapper's that the game instantiates (0x468B9B8)
         uintptr_t vt = *(uintptr_t*)((char*)a + 0x10) - (uintptr_t)g_game_base;
-        g_fh3_queue_stack_hits.fetch_add(1, std::memory_order_relaxed);
-        if (vt == kFH3DeferredVtable || vt == kFH3DeferredVtable2) {
-            void* deferred = (char*)a + 0x10;
-            g_fh3_player_deferred.store(deferred);
-            g_fh3_post_tid.store(GetCurrentThreadId());
-            fh3_find_pres(deferred);
-        } else {
+        void* deferred = (char*)a + 0x10;
+        void* cur = g_fh3_player_deferred.load();
+        static uint64_t last_sample = 0;
+        static int other_streak = 0;
+        uint64_t now = GetTickCount64();
+        // the player's presentation is whichever one the player's own car update keeps posting to. After a car swap the one we
+        // remember can still be alive (the game keeps the old car's around, and builds the new car's late), so the stack is
+        // sampled every 50 ms even with a presentation known, and a different one seen 4 samples in a row replaces it.
+        if ((vt == kFH3DeferredVtable || vt == kFH3DeferredVtable2) && (!cur || now - last_sample >= 50)) {
+            last_sample = now;
+            if (fh3_stack_has_player(0x2000)) {
+                g_fh3_queue_stack_hits.fetch_add(1, std::memory_order_relaxed);
+                if (!cur) {
+                    g_fh3_player_deferred.store(deferred);
+                    g_fh3_post_tid.store(GetCurrentThreadId());
+                    other_streak = 0;
+                    fh3_find_pres(deferred);
+                } else if (deferred == cur) {
+                    other_streak = 0;
+                } else if (++other_streak >= 4) {
+                    other_streak = 0;
+                    char buf[160];
+                    snprintf(buf, sizeof buf, "flames: the player's car now posts to presentation %p, not %p: switching.", deferred, cur);
+                    g_api->log(g_mod, buf);
+                    fh3_forget_player_pres();
+                    g_fh3_player_deferred.store(deferred);
+                    g_fh3_post_tid.store(GetCurrentThreadId());
+                    fh3_find_pres(deferred);
+                }
+            }
+        } else if (!cur && vt != kFH3DeferredVtable && vt != kFH3DeferredVtable2 && fh3_stack_has_player(0x2000)) {
             static int logs = 4;
             if (logs-- > 0) {
                 char buf[160];
                 snprintf(buf, sizeof buf, "flames: a queued message from the player's car update has an object at %p with vtable game+0x%llX (not the presentation)",
-                         (char*)a + 0x10, (unsigned long long)vt);
+                         deferred, (unsigned long long)vt);
                 g_api->log(g_mod, buf);
             }
         }
@@ -1699,6 +1733,8 @@ static uint64_t detour_fh3_post(void* deferred, const void* tips) {
             if (deferred != g_fh3_player_deferred.load()) {
                 g_fh3_player_deferred.store(deferred);
                 g_fh3_mask.store(0);
+                g_fh3_pres.store(nullptr);
+                fh3_find_pres(deferred);   // the CarPresentation (and its locators) of the presentation the game really posts to
                 fh3_log_tips("player's car posts a backfire,", deferred, t);
             } else if (mask & ~g_fh3_mask.load()) {
                 fh3_log_tips("player's car backfires on new tips,", deferred, t);
@@ -1746,12 +1782,7 @@ static void fh3_drive_flames() {
     void* deferred = g_fh3_player_deferred.load();
     if (!deferred) return;
     if (!fh3_deferred_alive(deferred)) {             // the car was swapped or removed: its presentation is gone, learn the new one
-        g_fh3_pres.store(nullptr);
-        g_tipsrc_searched.store(false);
-        g_fh3_mask_pres.store(0);
-        g_fh3_player_deferred.store(nullptr);
-        g_fh3_mask.store(0);
-        g_fh3_tips_ok.store(false);
+        fh3_forget_player_pres();
         g_api->log(g_mod, "flames: the player's presentation went away (another car?); it will be found again.");
         return;
     }
@@ -2961,7 +2992,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.28";
+    info.version          = "2.0.0-fh3.29";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
