@@ -10,6 +10,8 @@
 #include <xinput.h>
 
 #include <atomic>
+#include <unordered_set>
+#include <vector>
 #include <chrono>
 #include <cmath>
 #include <cstdarg>
@@ -1426,6 +1428,7 @@ static bool fh3_scan_for(const uint8_t* start, size_t len, const uint8_t* msg, i
     return false;
 }
 
+static void fh3_walk_for_positions(std::vector<uintptr_t> roots, float x, float y, float z, float x2, float y2, float z2);
 static void fh3_find_tip_source(const uint8_t* msg) {
     char* car = (char*)g_player_cardynamics;
     if (!car || g_tipsrc_searched.exchange(true)) return;
@@ -1453,7 +1456,19 @@ static void fh3_find_tip_source(const uint8_t* msg) {
             }
         }
     }
-    if (!hit) { g_api->log(g_mod, "tip source: not found in the car object or one pointer level behind it (the tips are built on the fly)"); return; }
+    if (!hit) {
+        g_api->log(g_mod, "tip source: not found in the car object or one pointer level behind it (the tips are built on the fly)");
+        static bool walked = false;
+        if (!walked) {
+            walked = true;
+            const float* a = (const float*)(msg + i0 * kFH3TipSize);
+            const float* c = (const float*)(msg + (j >= 0 ? j : i0) * kFH3TipSize);
+            std::vector<uintptr_t> roots = {(uintptr_t)car, (uintptr_t)g_fh3_pres.load(), (uintptr_t)g_fh3_player_deferred.load() - 0x10};
+            float x = a[12], y = a[13], z = a[14], x2 = c[12], y2 = c[13], z2 = c[14];
+            std::thread([roots, x, y, z, x2, y2, z2] { fh3_walk_for_positions(roots, x, y, z, x2, y2, z2); }).detach();
+        }
+        return;
+    }
     wchar_t w[16];
     swprintf(w, 16, L"%d", g_tipsrc_kind.load()); WritePrivateProfileStringW(L"FH3", L"TipSrcKind", w, g_ini_path);
     swprintf(w, 16, L"%d", g_tipsrc_a.load());    WritePrivateProfileStringW(L"FH3", L"TipSrcA", w, g_ini_path);
@@ -1473,6 +1488,58 @@ static const uint8_t* fh3_tip_source_ptr() {
         p = (const uint8_t*)q + g_tipsrc_b.load();
     }
     return p && readable_ptr(p, kFH3TipBytes) ? p : nullptr;
+}
+
+
+// Research: where do the exhaust positions live? Walks the objects reachable from the player's car, presentation and
+// deferred presentation (three pointer levels) and logs every place that holds the position of a flagged tip
+// (the game builds them from the model's carLocator_Exhaust_001..008 points).
+struct FH3Node { uintptr_t p; int parent; int off; };
+static void fh3_walk_for_positions(std::vector<uintptr_t> roots, float x, float y, float z, float x2, float y2, float z2) {
+    std::vector<FH3Node> nodes;
+    std::unordered_set<uintptr_t> seen;
+    const char* names[3] = {"car", "pres", "deferred"};
+    for (size_t r = 0; r < roots.size(); ++r) {
+        if (!roots[r]) continue;
+        nodes.push_back({roots[r], -1 - (int)r, 0});
+        seen.insert(roots[r]);
+    }
+    std::vector<int> depth(nodes.size(), 0);
+    int hits = 0;
+    auto path = [&](int idx, int hit_off) {
+        char b[600]; int n = 0;
+        std::vector<int> chain;
+        for (int i = idx; i >= 0; i = nodes[i].parent) chain.push_back(i);
+        int root = -1 - nodes[chain.back()].parent;
+        n += snprintf(b + n, sizeof b - n, "tip position found: %s", names[root < 0 ? 0 : root > 2 ? 2 : root]);
+        for (int k = (int)chain.size() - 2; k >= 0; --k) n += snprintf(b + n, sizeof b - n, " -> [+0x%X]", nodes[chain[k]].off);
+        snprintf(b + n, sizeof b - n, " : at +0x%X (node %p)", hit_off, (void*)nodes[idx].p);
+        g_api->log(g_mod, b);
+    };
+    for (size_t i = 0; i < nodes.size() && nodes.size() < 40000 && hits < 12; ++i) {
+        const uint8_t* base = (const uint8_t*)nodes[i].p;
+        size_t len = 0x800;
+        if (!readable_ptr(base, len)) { len = 0x200; if (!readable_ptr(base, len)) continue; }
+        for (size_t o = 0; o + 12 <= len && hits < 12; o += 4) {
+            const float* f = (const float*)(base + o);
+            if ((fabsf(f[0] - x) < 1e-4f && fabsf(f[1] - y) < 1e-4f && fabsf(f[2] - z) < 1e-4f) ||
+                (fabsf(f[0] - x2) < 1e-4f && fabsf(f[1] - y2) < 1e-4f && fabsf(f[2] - z2) < 1e-4f)) {
+                path((int)i, (int)o);
+                ++hits;
+            }
+        }
+        if (depth[i] >= 3) continue;
+        for (size_t o = 0; o + 8 <= len; o += 8) {
+            uintptr_t v = *(const uintptr_t*)(base + o);
+            if (v < 0x10000 || v > 0x7FFFFFFFFFFFull || (v & 7) || seen.count(v) || !readable_ptr((void*)v, 16)) continue;
+            seen.insert(v);
+            nodes.push_back({v, (int)i, (int)o});
+            depth.push_back(depth[i] + 1);
+        }
+    }
+    char b[160];
+    snprintf(b, sizeof b, "tip position search done: %zu objects visited, %d hits", nodes.size(), hits);
+    g_api->log(g_mod, b);
 }
 
 static uint64_t detour_fh3_post(void* deferred, const void* tips) {
@@ -2688,7 +2755,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.18";
+    info.version          = "2.0.0-fh3.19";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
