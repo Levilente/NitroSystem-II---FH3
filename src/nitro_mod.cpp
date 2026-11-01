@@ -723,6 +723,7 @@ static const int kFH3ReleaseSlot = 3;
 typedef uint64_t (*ReleaseFn)(void* self);
 static ReleaseFn g_orig_release = nullptr;
 static void nitro_tick(void* this_ptr, float dt);
+static std::atomic<bool> g_tipsrc_searched{false};   // FH3 flames: the tip source search has run for this car
 static void* g_game_base = nullptr;
 static std::atomic<void*> g_fh3_player_deferred{nullptr};   // FH3 flames (see the backfire code below)
 static std::atomic<bool> g_fh3_tips_ok{false};
@@ -845,6 +846,7 @@ static void nitro_tick(void* this_ptr, float dt) {
             if (g_player_cardynamics != this_ptr) {
                 nu_mark_dirty();
                 g_fh3_pres.store(nullptr);
+                g_tipsrc_searched.store(false);
                 g_fh3_mask_pres.store(0);
                 g_fh3_player_deferred.store(nullptr);   // a different car: its presentation and exhaust tips are learned again
                 g_fh3_mask.store(0);
@@ -1293,6 +1295,13 @@ static bool fh3_tip_valid(const uint8_t* t) {
     return fabsf(f[15] - 1.0f) < 0.01f;
 }
 
+static uint32_t fh3_pres_mask_of(const uint8_t* tips) {
+    uint32_t m = 0;
+    for (int i = 0; i < kFH3TipCount; ++i)
+        if (fh3_tip_valid(tips + i * kFH3TipSize)) m |= 1u << i;
+    return m;
+}
+
 static uint32_t fh3_pres_mask(const uint8_t* pres) {
     uint32_t m = 0;
     for (int i = 0; i < kFH3TipCount; ++i)
@@ -1394,6 +1403,78 @@ static void fh3_log_callers(const char* what) {
     g_api->log(g_mod, b);
 }
 
+
+// ---- where does the game keep the exhaust tips? -----------------------------------------------------------------------
+// The first backfire carries the tips. Looking for those bytes in the player's car object (and in what it points to) shows
+// whether the car keeps them somewhere permanent; if so the place is relative to the car object, is saved in the ini
+// ([FH3] TipSrcKind/A/B) and read from the next start on, before any backfire.
+static std::atomic<int> g_tipsrc_kind{0};        // 0 unknown, 1 car+A, 2 *(car+A)+B
+static std::atomic<int> g_tipsrc_a{0}, g_tipsrc_b{0};
+
+static bool fh3_scan_for(const uint8_t* start, size_t len, const uint8_t* msg, int i0, int j, const uint8_t** hit) {
+    for (size_t chunk = 0; chunk < len; chunk += 0x1000) {
+        size_t n = len - chunk < 0x1000 + 0x300 ? len - chunk : 0x1000 + 0x300;
+        if (!readable_ptr(start + chunk, n)) continue;
+        for (size_t o = chunk; o < chunk + 0x1000 && o + 0x40 <= len; o += 4) {
+            if (start + o + 0x40 + (j > i0 ? (size_t)(j - i0) * kFH3TipSize : 0) > start + chunk + n) break;
+            if (memcmp(start + o, msg + i0 * kFH3TipSize, 0x40) != 0) continue;
+            if (j > i0 && memcmp(start + o + (size_t)(j - i0) * kFH3TipSize, msg + j * kFH3TipSize, 0x40) != 0) continue;
+            *hit = start + o;
+            return true;
+        }
+    }
+    return false;
+}
+
+static void fh3_find_tip_source(const uint8_t* msg) {
+    char* car = (char*)g_player_cardynamics;
+    if (!car || g_tipsrc_searched.exchange(true)) return;
+    int i0 = -1, j = -1;
+    for (int i = 0; i < kFH3TipCount; ++i)
+        if (msg[i * kFH3TipSize + kFH3TipFlag] && fh3_tip_valid(msg + i * kFH3TipSize)) { if (i0 < 0) i0 = i; else if (j < 0) j = i; }
+    if (i0 < 0) { g_api->log(g_mod, "tip source: no valid flagged tip in the message"); g_tipsrc_searched.store(false); return; }
+    const uint8_t* hit = nullptr;
+    char b[300];
+    if (fh3_scan_for((const uint8_t*)car, 0x30000, msg, i0, j, &hit)) {
+        int a = (int)((hit - (const uint8_t*)car) - (intptr_t)i0 * kFH3TipSize);
+        g_tipsrc_kind.store(1); g_tipsrc_a.store(a); g_tipsrc_b.store(0);
+        snprintf(b, sizeof b, "tip source: FOUND in the car object, entry 0 at car+0x%X (tip %d matched%s)", a, i0, j > i0 ? ", stride confirmed" : "");
+        g_api->log(g_mod, b);
+    } else {
+        for (int p = 0; p < 0x2000 && !hit; p += 8) {
+            if (!readable_ptr(car + p, 8)) continue;
+            uintptr_t q = *(uintptr_t*)(car + p);
+            if (q < 0x10000 || (q >= (uintptr_t)car && q < (uintptr_t)car + 0x30000)) continue;
+            if (fh3_scan_for((const uint8_t*)q, 0x4000, msg, i0, j, &hit)) {
+                int bb = (int)((hit - (const uint8_t*)q) - (intptr_t)i0 * kFH3TipSize);
+                g_tipsrc_kind.store(2); g_tipsrc_a.store(p); g_tipsrc_b.store(bb);
+                snprintf(b, sizeof b, "tip source: FOUND behind the pointer at car+0x%X, entry 0 at +0x%X (tip %d matched%s)", p, bb, i0, j > i0 ? ", stride confirmed" : "");
+                g_api->log(g_mod, b);
+            }
+        }
+    }
+    if (!hit) { g_api->log(g_mod, "tip source: not found in the car object or one pointer level behind it (the tips are built on the fly)"); return; }
+    wchar_t w[16];
+    swprintf(w, 16, L"%d", g_tipsrc_kind.load()); WritePrivateProfileStringW(L"FH3", L"TipSrcKind", w, g_ini_path);
+    swprintf(w, 16, L"%d", g_tipsrc_a.load());    WritePrivateProfileStringW(L"FH3", L"TipSrcA", w, g_ini_path);
+    swprintf(w, 16, L"%d", g_tipsrc_b.load());    WritePrivateProfileStringW(L"FH3", L"TipSrcB", w, g_ini_path);
+}
+
+// The place of entry 0 of the player's exhaust tips, if the game keeps them in the car (null otherwise).
+static const uint8_t* fh3_tip_source_ptr() {
+    char* car = (char*)g_player_cardynamics;
+    int kind = g_tipsrc_kind.load();
+    if (!car || !kind) return nullptr;
+    const uint8_t* p = nullptr;
+    if (kind == 1) p = (const uint8_t*)car + g_tipsrc_a.load();
+    else if (readable_ptr(car + g_tipsrc_a.load(), 8)) {
+        uintptr_t q = *(uintptr_t*)(car + g_tipsrc_a.load());
+        if (q < 0x10000) return nullptr;
+        p = (const uint8_t*)q + g_tipsrc_b.load();
+    }
+    return p && readable_ptr(p, kFH3TipBytes) ? p : nullptr;
+}
+
 static uint64_t detour_fh3_post(void* deferred, const void* tips) {
     g_fh3_post_calls.fetch_add(1, std::memory_order_relaxed);
     if (!g_fh3_in_drive.load() && tips && readable_ptr(tips, kFH3TipBytes)) {
@@ -1406,6 +1487,7 @@ static uint64_t detour_fh3_post(void* deferred, const void* tips) {
             g_fh3_post_player.fetch_add(1, std::memory_order_relaxed);
             g_fh3_post_tid.store(GetCurrentThreadId());
             fh3_log_callers("player's backfire post");
+            fh3_find_tip_source(t);
             if (deferred != g_fh3_player_deferred.load()) {
                 g_fh3_player_deferred.store(deferred);
                 g_fh3_mask.store(0);
@@ -1445,11 +1527,11 @@ static void fh3_drive_flames() {
     if (g_fh3_tips_ok.load()) {                      // the game has backfired on this car: its message is the truth
         memcpy(msg, g_fh3_player_tips, kFH3TipBytes);
         if (!mask) mask = g_fh3_mask.load();
-    } else {                                         // not yet: the presentation's own tips, the ones that look valid
-        char* pres = (char*)g_fh3_pres.load();
-        if (!pres || !readable_ptr(pres + kFH3PresTips, kFH3TipBytes)) return;
-        memcpy(msg, pres + kFH3PresTips, kFH3TipBytes);
-        if (!mask) mask = g_fh3_mask_pres.load();
+    } else {                                         // not yet: the tips the car keeps itself (place learned from an earlier backfire)
+        const uint8_t* src = fh3_tip_source_ptr();
+        if (!src) return;
+        memcpy(msg, src, kFH3TipBytes);
+        if (!mask) mask = fh3_pres_mask_of(msg);
     }
     if (!(mask & 0xFF)) return;
     static uint64_t last = 0;
@@ -2606,7 +2688,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.17";
+    info.version          = "2.0.0-fh3.18";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
@@ -2647,6 +2729,9 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
         // [FH3] FlameTips: 0 (default) fires the exhaust tips the game has flagged for the car in its own backfires;
         // a bit mask (1 = first tip, 3 = first two...) forces those tips, for testing.
         g_fh3_mask_forced.store((uint32_t)GetPrivateProfileIntW(L"FH3", L"FlameTips", 0, g_ini_path) & 0xFF);
+        g_tipsrc_kind.store((int)GetPrivateProfileIntW(L"FH3", L"TipSrcKind", 0, g_ini_path));
+        g_tipsrc_a.store((int)GetPrivateProfileIntW(L"FH3", L"TipSrcA", 0, g_ini_path));
+        g_tipsrc_b.store((int)GetPrivateProfileIntW(L"FH3", L"TipSrcB", 0, g_ini_path));
         char msg[96];
         snprintf(msg, sizeof msg, "FH3 build: every car has Nitrous Kit stage %d ([FH3] Stage in the ini), boost %.1fx", stage, nu_boost(stage));
         api->log(g_mod, msg);
