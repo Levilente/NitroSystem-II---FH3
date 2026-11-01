@@ -1712,43 +1712,6 @@ static void fh3_walk_for_positions(std::vector<uintptr_t> roots, float x, float 
 // Research (small and safe, unlike the graph walk that crashed the game on 1 Nov): the first backfire's tip positions were
 // found under presentation+0x7B0 -> [+0x2C8, +0x2E0, +0x2F8, +0x310 ...] (stride 0x18) in 0x1C0-byte blocks. Lists the valid
 // 4x4 matrices in the first blocks, and what the table around holds.
-static void fh3_dump_locators() {
-    char* pres = (char*)g_fh3_pres.load();
-    char b[1500];
-    if (!pres || !readable_ptr(pres + 0x7B0, 8)) { g_api->log(g_mod, "locators: no presentation"); return; }
-    uintptr_t M = *(uintptr_t*)(pres + 0x7B0);
-    if (!readable_ptr((void*)M, 0x400)) { g_api->log(g_mod, "locators: object at presentation+0x7B0 unreadable"); return; }
-    int n = snprintf(b, sizeof b, "locators: object %p at presentation+0x7B0; qwords +0x2A0..+0x340:", (void*)M);
-    for (int o = 0x2A0; o < 0x340; o += 8) n += snprintf(b + n, sizeof b - n, " %llX", (unsigned long long)*(uintptr_t*)(M + o));
-    g_api->log(g_mod, b);
-    // the table at +0x2B0: entries of 0x18 bytes (control block vtable, counts, pointer to a 0x1C0-byte block). Names are looked
-    // for inside the block and behind its pointers.
-    if (!readable_ptr((void*)M, 0x700)) return;
-    for (int k = 0; k < (readable_ptr((void*)M, 0xB00) ? 64 : 24); ++k) {
-        uintptr_t q = *(uintptr_t*)(M + 0x2B0 + 0x18 * k);
-        if (q < 0x10000 || !readable_ptr((void*)q, 0x1C0)) { snprintf(b, sizeof b, "locators: [%d] %p unreadable", k, (void*)q); g_api->log(g_mod, b); continue; }
-        const char* name = nullptr;
-        char nm[48] = "";
-        const uint8_t* bl = (const uint8_t*)q;
-        for (int o = 0; o + 12 < 0x1C0 && !name; o += 4) {
-            if (memcmp(bl + o, "carLocator", 10) == 0 || memcmp(bl + o, "Locator", 7) == 0) name = (const char*)bl + o;
-        }
-        for (int o = 0; o + 8 <= 0x1C0 && !name; o += 8) {
-            uintptr_t v = *(const uintptr_t*)(bl + o);
-            if (v > 0x10000 && v < 0x7FFFFFFFFFFFull && readable_ptr((void*)v, 48) &&
-                (memcmp((void*)v, "carLocator", 10) == 0 || memcmp((void*)v, "Locator", 7) == 0)) name = (const char*)v;
-        }
-        if (name) { for (int i = 0; i < 40 && name[i] >= 32 && name[i] < 127; ++i) nm[i] = name[i]; }
-        const float* f = (const float*)(bl + 0x70);
-        snprintf(b, sizeof b, "locators: [%d] block %p name \"%s\" matrix %s pos %.2f,%.2f,%.2f", k, bl, nm, fh3_tip_valid(bl + 0x70) ? "valid" : "invalid", f[12], f[13], f[14]);
-        g_api->log(g_mod, b);
-        if (!name && k < 3) {
-            int m = snprintf(b, sizeof b, "locators: [%d] no name; first qwords:", k);
-            for (int o = 0; o < 0x60; o += 8) m += snprintf(b + m, sizeof b - m, " %llX", (unsigned long long)*(const uintptr_t*)(bl + o));
-            g_api->log(g_mod, b);
-        }
-    }
-}
 
 
 // ---- exhaust tips from the model's locators, before any backfire ------------------------------------------------------
@@ -1756,33 +1719,61 @@ static void fh3_dump_locators() {
 // block (0x1C0 bytes) has the locator's name ("carLocator_Exhaust_NNN") and its 4x4 matrix at +0x70. The game's backfire
 // message uses tip N-1 for locator NNN. A car without a locator gets a shared fallback position (five blocks at the same
 // place on the Urus), so only locators with a position of their own count. (Layout read from the 1 Nov logs.)
+// The locator entries are {control block vtable game+0x464CD60, counts, block pointer}. On the first car of a session
+// they form a sorted array at +0x2A0 of the object at presentation+0x7B0; after a car swap the object has other things
+// in front (1 Nov logs: hash nodes, the array further on), so the object is searched for entries instead.
+static const uintptr_t kFH3LocatorCtrlVtable = 0x464CD60;
+
+struct FH3Locator { const uint8_t* block; const char* name; int off; };
+
+// Lists the named locator blocks found in the object at presentation+0x7B0 (each block once).
+static int fh3_find_locators(const char* pres, FH3Locator* out, int max, uintptr_t* M_out) {
+    if (!pres || !readable_ptr(pres + 0x7B0, 8)) return 0;
+    uintptr_t M = *(const uintptr_t*)(pres + 0x7B0);
+    if (M_out) *M_out = M;
+    if (M < 0x10000 || M > 0x7FFFFFFF0000ull) return 0;
+    int span = 0;
+    for (int sz = 0x4000; sz >= 0x400; sz >>= 1) if (readable_ptr((void*)M, sz)) { span = sz; break; }
+    if (!span) return 0;
+    const uintptr_t vt = (uintptr_t)g_game_base + kFH3LocatorCtrlVtable;
+    int n = 0;
+    for (int o = 0; o + 0x18 <= span && n < max; o += 8) {
+        if (*(const uintptr_t*)(M + o) != vt) continue;
+        uintptr_t q = *(const uintptr_t*)(M + o + 0x10);
+        if (q < 0x10000 || q > 0x7FFFFFFF0000ull || !readable_ptr((void*)q, 0x1C0)) continue;
+        const uint8_t* bl = (const uint8_t*)q;
+        bool dup = false;
+        for (int i = 0; i < n && !dup; ++i) dup = out[i].block == bl;
+        if (dup) continue;
+        const char* name = nullptr;
+        for (int k = 0; k + 12 <= 0x1C0 && !name; k += 4)
+            if (memcmp(bl + k, "carLocator_", 11) == 0) name = (const char*)bl + k;
+        for (int k = 0; k + 8 <= 0x1C0 && !name; k += 8) {
+            uintptr_t v = *(const uintptr_t*)(bl + k);
+            if (v > 0x10000 && v < 0x7FFFFFFF0000ull && readable_ptr((void*)v, 32) && memcmp((void*)v, "carLocator_", 11) == 0)
+                name = (const char*)v;
+        }
+        if (!name) continue;
+        out[n++] = {bl, name, o};
+    }
+    return n;
+}
+
 static bool fh3_build_locator_tips(uint8_t* out, uint32_t* mask_out) {
     memset(out, 0, kFH3TipBytes);
     *mask_out = 0;
-    char* pres = (char*)g_fh3_pres.load();
-    if (!pres || !readable_ptr(pres + 0x7B0, 8)) return false;
-    uintptr_t M = *(uintptr_t*)(pres + 0x7B0);
-    if (M < 0x10000 || !readable_ptr((void*)M, 0x700)) return false;
-    const int entries = readable_ptr((void*)M, 0xB00) ? 64 : 24;   // the Urus has more than 24 locators in the table
+    FH3Locator loc[96];
+    int nl = fh3_find_locators((const char*)g_fh3_pres.load(), loc, 96, nullptr);
     struct E { int num; const uint8_t* mat; };
     E e[32];
     int n = 0;
-    for (int k = 0; k < entries && n < 32; ++k) {
-        uintptr_t q = *(uintptr_t*)(M + 0x2B0 + 0x18 * k);
-        if (q < 0x10000 || !readable_ptr((void*)q, 0x1C0)) continue;
-        const uint8_t* bl = (const uint8_t*)q;
-        const char* name = nullptr;
-        for (int o = 0; o + 24 <= 0x1C0 && !name; o += 4)
-            if (memcmp(bl + o, "carLocator_Exhaust_", 19) == 0) name = (const char*)bl + o;
-        for (int o = 0; o + 8 <= 0x1C0 && !name; o += 8) {
-            uintptr_t v = *(const uintptr_t*)(bl + o);
-            if (v > 0x10000 && v < 0x7FFFFFFFFFFFull && readable_ptr((void*)v, 24) && memcmp((void*)v, "carLocator_Exhaust_", 19) == 0)
-                name = (const char*)v;
-        }
-        if (!name || name[19] < '0' || name[19] > '9' || name[20] < '0' || name[20] > '9' || name[21] < '0' || name[21] > '9') continue;
+    for (int i = 0; i < nl && n < 32; ++i) {
+        const char* name = loc[i].name;
+        if (memcmp(name, "carLocator_Exhaust_", 19) != 0) continue;
+        if (name[19] < '0' || name[19] > '9' || name[20] < '0' || name[20] > '9' || name[21] < '0' || name[21] > '9') continue;
         int num = (name[19] - '0') * 100 + (name[20] - '0') * 10 + (name[21] - '0');
         if (num < 1 || num > kFH3TipCount) continue;
-        e[n++] = {num, bl + 0x70};
+        e[n++] = {num, loc[i].block + 0x70};
     }
     for (int i = 0; i < n; ++i) {
         const float* a = (const float*)e[i].mat;
@@ -1798,6 +1789,23 @@ static bool fh3_build_locator_tips(uint8_t* out, uint32_t* mask_out) {
         *mask_out |= 1u << idx;
     }
     return *mask_out != 0;
+}
+
+static void fh3_dump_locators() {
+    const char* pres = (const char*)g_fh3_pres.load();
+    FH3Locator loc[96];
+    uintptr_t M = 0;
+    int nl = fh3_find_locators(pres, loc, 96, &M);
+    char b[1800];
+    int n = snprintf(b, sizeof b, "locators: CarPresentation %p, object %p at +0x7B0, %d named:", pres, (void*)M, nl);
+    for (int i = 0; i < nl && n < (int)sizeof b - 90; ++i) {
+        const float* f = (const float*)(loc[i].block + 0x70);
+        char nm[40] = "";
+        for (int k = 0; k < 36 && loc[i].name[k] >= 32 && loc[i].name[k] < 127; ++k) nm[k] = loc[i].name[k];
+        const char* shortnm = strncmp(nm, "carLocator_", 11) == 0 ? nm + 11 : nm;
+        n += snprintf(b + n, sizeof b - n, " [+0x%X %s %s%.2f,%.2f,%.2f]", loc[i].off, shortnm, fh3_tip_valid(loc[i].block + 0x70) ? "" : "INVALID ", f[12], f[13], f[14]);
+    }
+    g_api->log(g_mod, b);
 }
 
 // At the game's first real backfire: how close is what the locators give to the game's own message? (log, once per car)
@@ -1890,6 +1898,17 @@ static void fh3_drive_flames() {
         fh3_forget_player_pres();
         g_api->log(g_mod, "flames: the player's presentation went away (another car?); it will be found again.");
         return;
+    }
+    {   // the deferred presentation can stay while the car behind it changes: follow its CarPresentation (+0x18 of the outer object)
+        char* p = *(char**)((char*)deferred + 0x8);
+        if (p != g_fh3_pres.load() && p && readable_ptr(p, 8)) {
+            uintptr_t pvt = *(uintptr_t*)p - (uintptr_t)g_game_base;
+            if (pvt == kFH3PresVtables[0] || pvt == kFH3PresVtables[1]) {
+                g_fh3_pres.store(p);
+                g_fh3_tips_ok.store(false);
+                g_fh3_mask.store(0);
+            }
+        }
     }
     alignas(16) uint8_t msg[kFH3TipBytes];
     uint32_t mask = g_fh3_mask_forced.load();
@@ -3109,7 +3128,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.32";
+    info.version          = "2.0.0-fh3.33";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
