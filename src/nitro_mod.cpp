@@ -721,7 +721,7 @@ static const int kFH3ReleaseSlot = 3;
 typedef uint64_t (*ReleaseFn)(void* self);
 static ReleaseFn g_orig_release = nullptr;
 static void nitro_tick(void* this_ptr, float dt);
-static void restore_torque(char* car);
+static void update_torque(char* car);
 
 static uint64_t detour_release(void* self) {
     char* car = (char*)self - kFH3CarSecondaryThis;
@@ -736,8 +736,8 @@ static uint64_t detour_release(void* self) {
         dt = (float)(now.QuadPart - last.QuadPart) / (float)freq.QuadPart;
     if (car == g_player_cardynamics) last = now, last_car = car;
     if (dt > 0.05f) dt = 1.0f / 360.0f;
-    restore_torque(car);
     nitro_tick(car, dt);
+    update_torque(car);
     return g_orig_release(self);
 }
 
@@ -745,42 +745,46 @@ static uint64_t detour_release(void* self) {
 // The engine's torque (game+0x1D27A51, on the car's engine block at object+0x5F8) is the torque curve at the current
 // revs, blended with the turbo / supercharger curve, times the throttle, then times two per-car scales:
 // object+0x10CC (used all over the drivetrain) and object+0x1198 (only on the engine's output). Nitro multiplies
-// object+0x1198 for the player's car while it burns: set at the start of the car's tick (AddRef, slot 2), put back
-// at its end (Release), so the game's own value is never lost. The torque goes through the gearbox and the tyres
+// object+0x1198 for the player's car while it burns, and puts the game's own value back when it stops. The torque goes through the gearbox and the tyres
 // like any other: wheelspin, gears and traction all apply.
 static const int kFH3AddRefSlot = 2;
 static std::atomic<int> g_torque_field{0x1198};
-typedef uint64_t (*AddRefFn)(void* self);
-static AddRefFn g_orig_addref = nullptr;
 static void* g_scaled_car = nullptr;
 static float g_scaled_base = 1.0f, g_scaled_value = 1.0f;
 static std::atomic<float> g_torque_base_seen{0.0f};
 
-static uint64_t detour_addref(void* self) {
-    uint64_t r = g_orig_addref(self);
-    char* car = (char*)self - kFH3CarSecondaryThis;
-    if (car == g_player_cardynamics && car != g_scaled_car) {   // already scaled this tick: leave it
-        float* f = (float*)(car + g_torque_field.load());
-        float base = *f;
-        g_torque_base_seen.store(base);
-        float boost = g_current_boost.load();
-        if (g_enabled.load() && g_nitro_active.load() && nu_level() > 0 && boost > 1.0f && base > 0.1f && base < 10.0f) {
-            float extra = (boost - 1.0f) * g_push_scale.load();
-            g_scaled_car = car;
-            g_scaled_base = base;
-            g_scaled_value = base * (1.0f + extra);
-            *f = g_scaled_value;
-            g_boosted_frames.fetch_add(1, std::memory_order_relaxed);
-        }
-    }
-    return r;
-}
-
-static void restore_torque(char* car) {
-    if (car != g_scaled_car) return;
+// Called at the end of every tick of every car. The scale stays raised for as long as nitro burns (the game reads it
+// on its own schedule, not inside this AddRef/Release pair - tested 1 Nov), and goes back when nitro stops or the
+// player changes car.
+static void update_torque(char* car) {
+    if (car != g_player_cardynamics && car != g_scaled_car) return;
+    const bool want = car == g_player_cardynamics && g_enabled.load() && g_nitro_active.load() && nu_level() > 0 &&
+                      g_current_boost.load() > 1.0f;
     float* f = (float*)(car + g_torque_field.load());
-    if (*f == g_scaled_value) *f = g_scaled_base;   // the game didn't write it meanwhile
-    g_scaled_car = nullptr;
+    if (car == g_scaled_car) {
+        if (*f != g_scaled_value) g_scaled_base = *f;   // the game wrote its own value meanwhile: that's the base now
+        if (!want) {
+            *f = g_scaled_base;
+            g_scaled_car = nullptr;
+            return;
+        }
+    } else {
+        if (!want) {
+            g_torque_base_seen.store(*f);
+            return;
+        }
+        if (g_scaled_car) {   // another car was scaled: put it back first
+            float* old = (float*)((char*)g_scaled_car + g_torque_field.load());
+            if (*old == g_scaled_value) *old = g_scaled_base;
+        }
+        if (!(*f > 0.05f && *f < 10.0f)) return;
+        g_scaled_car = car;
+        g_scaled_base = *f;
+    }
+    g_torque_base_seen.store(g_scaled_base);
+    g_scaled_value = g_scaled_base * (1.0f + (g_current_boost.load() - 1.0f) * g_push_scale.load());
+    *f = g_scaled_value;
+    g_boosted_frames.fetch_add(1, std::memory_order_relaxed);
 }
 
 static bool install_release_hook(char* base) {
@@ -789,9 +793,7 @@ static bool install_release_hook(char* base) {
     if (!VirtualProtect(slot - 1, 2 * sizeof(void*), PAGE_READWRITE, &old)) return false;   // slots 2 and 3
     g_orig_release = (ReleaseFn)*slot;
     *slot = (void*)&detour_release;
-    void** add = (void**)(base + kFH3CarSecondaryVtable) + kFH3AddRefSlot;
-    g_orig_addref = (AddRefFn)*add;
-    *add = (void*)&detour_addref;
+
     VirtualProtect(slot - 1, 2 * sizeof(void*), old, &old);
     return true;
 }
@@ -2213,7 +2215,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.9";
+    info.version          = "2.0.0-fh3.10";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
