@@ -1,7 +1,7 @@
 // Files embedded in the DLL: the HUD, the flame effect and the nitro sounds. The HUD and flame files are written to mediaoverride by the code in nitro_mod.cpp.
 // Paths are relative to this file.
 
-HUDSpeedometerControl RCDATA "../hud/HUDSpeedometerControl.xaml"
+HUDSpeedometerControl RCDATA "../hud/fh3/HUDSpeedometerControl.xaml"
 HUD_Nos_Outline_Digital_Bar RCDATA "../hud/shared/HUD_Nos_Outline_Digital_Bar.swatchbin"
 HUD_Nos_Outline_Radial_Bar RCDATA "../hud/shared/HUD_Nos_Outline_Radial_Bar.swatchbin"
 HUD_Dial_Assist_Analogue_ABS_On RCDATA "../hud/ff/HUD_Dial_Assist_Analogue_ABS_On.swatchbin"

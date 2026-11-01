@@ -250,7 +250,7 @@ struct HudFile {
 #define HUD_GEAR(n) {"HUD_Dial_Digital_Gear_" #n, "ui/textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_" #n ".swatchbin", true}
 #define HUD_ICON(kind, what) {"HUD_Dial_Assist_" kind "_" what "_On", "ui/textures/data_bound/Anthem/HUD/HUD_Dial_Assist_" kind "_" what "_On.swatchbin", true}
 #define HUD_OUTLINE(name) {"HUD_Nos_Outline_" name "_Bar", "ui/textures/data_bound/SpireHUD/HUD_Nos_Outline_" name "_Bar.swatchbin", false}
-static const HudFile k_hud_xaml = {"HUDSpeedometerControl", "ui/Controls/HUDSpeedometerControl.xaml", false};
+static const HudFile k_hud_xaml = {"HUDSpeedometerControl", "UI/Controls/HUDSpeedometerControl.xaml", false};
 static const HudFile k_hud_files[] = {
     HUD_OUTLINE("Digital"), HUD_OUTLINE("Radial"),
     HUD_GEAR(1), HUD_GEAR(2), HUD_GEAR(3), HUD_GEAR(4), HUD_GEAR(5), HUD_GEAR(6), HUD_GEAR(7), HUD_GEAR(8),
@@ -286,7 +286,6 @@ static void replace_all(std::string& s, const char* from, const char* to) {
 
 static void apply_hud_theme() {
     // FH3: the HUD files are FH2's (FH3's speedometer XAML differs); not handed to the game until they're ported.
-    if (NITRO_FH3) return;
     if (!g_api || !g_mod || g_api->api_version < 2) return;
     const bool ff = g_hud_theme.load() != 0;
 
@@ -306,6 +305,10 @@ static void apply_hud_theme() {
     if (!g_api->set_file(g_mod, k_hud_xaml.media_path, xaml.data(), xaml.size()))
         g_api->log(g_mod, "HUD: couldn't replace the speedometer XAML (see platform.log).");
 
+    if (NITRO_FH3) {   // FH3: only the speedometer XAML (the NOS bar); the FH2 art isn't used
+        g_api->log(g_mod, "HUD: the NOS gauge XAML is in place (applies when the HUD is next loaded).");
+        return;
+    }
     for (const auto& f : k_hud_files) {
         if (f.ff_only && !ff) {
             g_api->clear_file(g_mod, f.media_path);
@@ -2360,8 +2363,14 @@ static void detour_speedo_tick(void* speedo, float rpm) {
         }
 
         // Drive the 4 NOS segments via RPMGaugeNumbers[17..20] and the glowing tip cap on [16].
+#if NITRO_FH3
+        // FH3: the RPMGaugeNumbers list is the object at speedo+0x220 (the same +0x50 -> +0x28 -> +0x28 chain follows).
+        if (!readable_ptr(speedo, 0x238) || *(uintptr_t*)speedo != (uintptr_t)g_game_base + 0x44A4318) return;
+        void* arr_wrapper = *(void**)((uintptr_t)speedo + 0x220);
+#else
         void* arr_wrapper = *(void**)((uintptr_t)speedo + 0x150);
-        if (arr_wrapper) {
+#endif
+        if (arr_wrapper && readable_ptr(arr_wrapper, 0x58)) {
             void* p50 = *(void**)((uintptr_t)arr_wrapper + 0x50);
             if (p50) {
                 void* p28 = *(void**)((uintptr_t)p50 + 0x28);
@@ -2371,9 +2380,15 @@ static void detour_speedo_tick(void* speedo, float rpm) {
                         typedef void* (*GetPropFn)();
                         typedef void (*RaiseItemPropFn)(void* item, void* prop);
 
+#if NITRO_FH3
+                        GetPropFn get_xpos_prop = (GetPropFn)((uintptr_t)g_game_base + 0x11042F0);
+                        GetPropFn get_ypos_prop = (GetPropFn)((uintptr_t)g_game_base + 0x1104400);
+                        RaiseItemPropFn raise_item_prop = (RaiseItemPropFn)((uintptr_t)g_game_base + 0x10FA660);
+#else
                         GetPropFn get_xpos_prop = (GetPropFn)((uintptr_t)g_game_base + 0xADD560);
                         GetPropFn get_ypos_prop = (GetPropFn)((uintptr_t)g_game_base + 0xADD620);
                         RaiseItemPropFn raise_item_prop = (RaiseItemPropFn)((uintptr_t)g_game_base + 0xAD1A80);
+#endif
 
                         void* prop_xpos = get_xpos_prop();
                         void* prop_ypos = get_ypos_prop();
@@ -2395,7 +2410,7 @@ static void detour_speedo_tick(void* speedo, float rpm) {
 
                         for (const auto& t : targets) {
                             void* item = items[t.idx];
-                            if (!item) continue;
+                            if (!item || !readable_ptr(item, 0x40)) continue;
 
                             float* p_x = (float*)((uintptr_t)item + 0x38);
                             if (fabsf(*p_x - t.x) > 0.0005f) {
@@ -2823,6 +2838,13 @@ static void nitro_worker_thread() {
                                                         : "Could not hook the car physics tick: no nitro push.");
 
     install_fh3_flames((char*)base);
+    {   // the speedometer's per-frame update (rcx = HUDStatusSpeedometer, xmm1 = rpm): drives the NOS gauge
+        FH3Hook* hs = g_api->hook_function(g_mod, "HUDStatusSpeedometer update", (char*)base + 0x10FD450,
+                                           (void*)detour_speedo_tick, (void**)&g_orig_speedo_tick);
+        g_api->log(g_mod, hs && g_api->enable_hooks(g_mod, hs) ? "Speedometer hooked (NOS gauge)."
+                                                              : "Could not hook the speedometer: no NOS gauge.");
+        apply_hud_theme();
+    }
     {
         struct H { const char* name; uintptr_t rva; void* detour; void** orig; };
         const H hooks[] = {
@@ -3223,7 +3245,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.35";
+    info.version          = "2.0.0-fh3.36";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;

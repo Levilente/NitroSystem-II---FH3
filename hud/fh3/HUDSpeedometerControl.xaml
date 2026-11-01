@@ -1,0 +1,655 @@
+<UserControl
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:local="clr-namespace:ForzaUI" 
+    xmlns:System="clr-namespace:System;assembly=mscorlib"
+    mc:Ignorable="d"
+    x:Class="ForzaUI.HUDSpeedometerControl"
+    x:Name="UserControl">
+
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <!--
+          <ResourceDictionary.MergedDictionaries>
+              <ResourceDictionary Source="/Resources/Anthem/Shared_Hud.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            -->
+            <System:Double x:Key="A_Double_Speedo_Analog_Width">312</System:Double>
+            <System:Double x:Key="A_Double_Speedo_Analog_Height">312</System:Double>
+            <System:Double x:Key="A_Double_Speedo_Digital_Width">365</System:Double>
+            <System:Double x:Key="A_Double_Speedo_Digital_Height">40</System:Double>
+
+            <System:Double x:Key="A_Double_Speed_Analog_Height">100</System:Double>
+            <System:Double x:Key="A_Double_Speed_Analog_Width">60</System:Double>
+            <Thickness x:Key="A_Thickness_Speed_Analog_Margin">-13,0,0,0</Thickness>
+
+            <System:Double x:Key="A_Double_Speed_Digital_Height">114</System:Double>
+            <System:Double x:Key="A_Double_Speed_Digital_Width">66</System:Double>
+            <Thickness x:Key="A_Thickness_Speed_Digital_Margin">-15,0,0,0</Thickness>
+
+            <Color x:Key="A_Color_Faded_HUDInfo_Analog">#66FFFFFF</Color>
+            <Color x:Key="A_Color_Faded_HUDInfo_Digital">#66FFFFFF</Color>
+            <Color x:Key="A_Color_HUDInfo">#FFFFFFFF</Color>
+            <Color x:Key="A_Color_Faded_HUDSpeedDigit_Analog">#66FFFFFF</Color>
+            <Color x:Key="A_Color_Faded_HUDSpeedDigit_Digital">#66FFFFFF</Color>
+
+            <Color x:Key="A_Color_GaugeNumber">#66FFFFFF</Color>
+            <Color x:Key="A_Color_GaugeNumber_Lit">#FFFFFFFF</Color>
+            <Color x:Key="A_Color_GaugeNumber_Redline">#B3FF1D58</Color>
+            <Color x:Key="A_Color_GaugeNumber_LitRedline">#FFFF1D58</Color>
+
+            <local:FZGeometry x:Key="A_FZGeometry_AnalogGaugeMesh" Data="M250.00,150.00L236.60,100.00 200.00,63.40 150.00,50.00 100.00,63.40 63.40,100.00 50.00,150.00 63.40,200.00 100.00,236.60 75.00,279.90 20.10,225.00 0.00,150.00 20.10,75.00 75.00,20.10 150.00,0.00 225.00,20.10 279.90,75.00 300.00,150.00z"/>
+
+            <Style x:Key="A_Style_FZMaterial_Speedometer_Speed_One_Analog" TargetType="local:FZMaterial">
+                 <Style.Triggers>
+                    <DataTrigger Binding="{Binding SpeedLessOrEqualOne}" Value="True">
+                        <Setter Property="Color" Value="{StaticResource A_Color_Faded_HUDSpeedDigit_Analog}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitOne}" Value="0">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_0.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitOne}" Value="1">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_1.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitOne}" Value="2">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_2.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitOne}" Value="3">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_3.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitOne}" Value="4">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_4.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitOne}" Value="5">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_5.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitOne}" Value="6">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_6.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitOne}" Value="7">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_7.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitOne}" Value="8">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_8.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitOne}" Value="9">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_9.png"/>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="A_Style_FZMaterial_Speedometer_Speed_Ten_Analog" TargetType="local:FZMaterial">
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding SpeedLessTen}" Value="True">
+                        <Setter Property="Color" Value="{StaticResource A_Color_Faded_HUDSpeedDigit_Analog}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitTen}" Value="0">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_0.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitTen}" Value="1">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_1.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitTen}" Value="2">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_2.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitTen}" Value="3">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_3.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitTen}" Value="4">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_4.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitTen}" Value="5">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_5.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitTen}" Value="6">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_6.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitTen}" Value="7">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_7.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitTen}" Value="8">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_8.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitTen}" Value="9">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_9.png"/>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="A_Style_FZMaterial_Speedometer_Speed_Hundred_Analog" TargetType="local:FZMaterial">
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding SpeedLessHundred}" Value="True">
+                        <Setter Property="Color" Value="{StaticResource A_Color_Faded_HUDSpeedDigit_Analog}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitHundred}" Value="0">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_0.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitHundred}" Value="1">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_1.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitHundred}" Value="2">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_2.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitHundred}" Value="3">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_3.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitHundred}" Value="4">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_4.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitHundred}" Value="5">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_5.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitHundred}" Value="6">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_6.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitHundred}" Value="7">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_7.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitHundred}" Value="8">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_8.png"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding SpeedDigitHundred}" Value="9">
+                        <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_SpeedDigit_9.png"/>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="A_Style_FZMaterial_Speedometer_Speed_One_Digital"
+                   TargetType="local:FZMaterial"
+                   BasedOn="{StaticResource A_Style_FZMaterial_Speedometer_Speed_One_Analog}">
+                 <Style.Triggers>
+                    <DataTrigger Binding="{Binding SpeedLessOrEqualOne}" Value="True">
+                        <Setter Property="Color" Value="{StaticResource A_Color_Faded_HUDSpeedDigit_Digital}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="A_Style_FZMaterial_Speedometer_Speed_Ten_Digital"
+                   TargetType="local:FZMaterial"
+                   BasedOn="{StaticResource A_Style_FZMaterial_Speedometer_Speed_Ten_Analog}">
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding SpeedLessTen}" Value="True">
+                        <Setter Property="Color" Value="{StaticResource A_Color_Faded_HUDSpeedDigit_Digital}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="A_Style_FZMaterial_Speedometer_Speed_Hundred_Digital"
+                   TargetType="local:FZMaterial"
+                   BasedOn="{StaticResource A_Style_FZMaterial_Speedometer_Speed_Hundred_Analog}">
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding SpeedLessHundred}" Value="True">
+                        <Setter Property="Color" Value="{StaticResource A_Color_Faded_HUDSpeedDigit_Digital}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="A_Style_FZMaterial_Lights" TargetType="local:FZMaterial">
+                <Setter Property="Width" Value="64" />
+                <Setter Property="Height" Value="64" />
+                <Setter Property="Color" Value="{StaticResource A_Color_Faded_HUDInfo_Analog}"/>
+            </Style>
+
+            <Style x:Key="A_Style_FZMaterial_Analog_ABSLight" TargetType="local:FZMaterial" BasedOn="{StaticResource A_Style_FZMaterial_Lights}">
+                <Setter Property="ImageSource" Value="{DynamicResource A_BitmapImage_ABSIcon_Off}" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsABSOn}" Value="True">
+                        <Setter Property="Color" Value="{StaticResource A_Color_HUDInfo}"/>
+                        <Setter Property="ImageSource" Value="{DynamicResource A_BitmapImage_ABSIcon_On}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="A_Style_FZMaterial_Analog_TCRLight" TargetType="local:FZMaterial" BasedOn="{StaticResource A_Style_FZMaterial_Lights}">
+                <Setter Property="ImageSource" Value="{DynamicResource A_BitmapImage_TCRIcon_Off}" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsTCROn}" Value="True">
+                        <Setter Property="Color" Value="{StaticResource A_Color_HUDInfo}"/>
+                        <Setter Property="ImageSource" Value="{DynamicResource A_BitmapImage_TCRIcon_On}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="A_Style_FZMaterial_Analog_STMLight" TargetType="local:FZMaterial" BasedOn="{StaticResource A_Style_FZMaterial_Lights}">
+                <Setter Property="ImageSource" Value="{DynamicResource A_BitmapImage_STMIcon_Off}" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsSTMOn}" Value="True">
+                        <Setter Property="Color" Value="{StaticResource A_Color_HUDInfo}"/>
+                        <Setter Property="ImageSource" Value="{DynamicResource A_BitmapImage_STMIcon_On}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="A_Style_FZMaterial_Digital_ABSLight" TargetType="local:FZMaterial" BasedOn="{StaticResource A_Style_FZMaterial_Lights}">
+                <Setter Property="ImageSource" Value="{DynamicResource A_BitmapImage_ABSIcon_Off}" />
+                <Setter Property="Color" Value="{StaticResource A_Color_Faded_HUDInfo_Digital}"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsABSOn}" Value="True">
+                        <Setter Property="ImageSource" Value="{DynamicResource A_BitmapImage_ABSIcon_On}" />
+                        <Setter Property="Color" Value="{StaticResource A_Color_HUDInfo}"/>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="A_Style_FZMaterial_Digital_TCRLight" TargetType="local:FZMaterial" BasedOn="{StaticResource A_Style_FZMaterial_Lights}">
+                <Setter Property="ImageSource" Value="{DynamicResource A_BitmapImage_TCRIcon_Off}" />
+                <Setter Property="Color" Value="{StaticResource A_Color_Faded_HUDInfo_Digital}"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsTCROn}" Value="True">
+                        <Setter Property="ImageSource" Value="{DynamicResource A_BitmapImage_TCRIcon_On}" />
+                        <Setter Property="Color" Value="{StaticResource A_Color_HUDInfo}"/>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="A_Style_FZMaterial_Digital_STMLight" TargetType="local:FZMaterial" BasedOn="{StaticResource A_Style_FZMaterial_Lights}">
+                <Setter Property="ImageSource" Value="{DynamicResource A_BitmapImage_STMIcon_Off}" />
+                <Setter Property="Color" Value="{StaticResource A_Color_Faded_HUDInfo_Digital}"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsSTMOn}" Value="True">
+                        <Setter Property="ImageSource" Value="{DynamicResource A_BitmapImage_STMIcon_On}" />
+                        <Setter Property="Color" Value="{StaticResource A_Color_HUDInfo}"/>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="A_Style_FZMaterial_Analog_SpeedUnits" TargetType="local:FZMaterial">
+                <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Unit_MPH1.png" />
+                <Setter Property="Color" Value="{StaticResource A_Color_Faded_HUDInfo_Analog}"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsUsingMPH}" Value="True">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Unit_MPH1.png" />
+                         <Setter Property="Margin" Value="0,0,2,0" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding IsUsingMPH}" Value="False">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Unit_KPH1.png" />
+                         <Setter Property="Margin" Value="0,0,6,0" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="A_Style_FZMaterial_Digital_SpeedUnits" TargetType="local:FZMaterial">
+                <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Unit_MPH1.png" />
+                <Setter Property="Color" Value="{StaticResource A_Color_Faded_HUDInfo_Digital}"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsUsingMPH}" Value="True">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Unit_MPH1.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding IsUsingMPH}" Value="False">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Unit_KPH1.png" />
+                         <Setter Property="Margin" Value="0,0,-4,0" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="A_Style_FZMaterial_GearDisplay" TargetType="local:FZMaterial">
+                <Setter Property="Visibility" Value="{Binding IsShiftLightOn, Converter={StaticResource A_FZBooleanToVisibilityConverter_Inverse}}"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="0">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Gear_R.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="1">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Gear_1.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="2">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Gear_2.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="3">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Gear_3.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="4">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Gear_4.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="5">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Gear_5.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="6">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Gear_6.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="7">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Gear_7.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="8">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Gear_8.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="9">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Gear_9.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="10">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Gear_10.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="11">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Gear_N.png" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="A_Style_FZMaterial_GearDisplay_ShiftLight" TargetType="local:FZMaterial">
+                <Setter Property="Visibility" Value="{Binding IsShiftLightOn, Converter={StaticResource A_FZBooleanToVisibilityConverter}}"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="0">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Gear_R.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="1">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Gear_Redline_1.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="2">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Gear_Redline_2.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="3">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Gear_Redline_3.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="4">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Gear_Redline_4.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="5">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Gear_Redline_5.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="6">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Gear_Redline_6.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="7">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Gear_Redline_7.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="8">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Gear_Redline_8.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="9">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Gear_Redline_9.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="10">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Gear_Redline_10.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="11">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Gear_N.png" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="A_Style_FZMaterial_GearDisplay_Digital" TargetType="local:FZMaterial">
+                <Setter Property="Visibility" Value="{Binding IsShiftLightOn, Converter={StaticResource A_FZBooleanToVisibilityConverter_Inverse}}"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="0">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_R.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="1">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_1.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="2">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_2.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="3">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_3.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="4">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_4.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="5">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_5.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="6">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_6.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="7">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_7.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="8">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_8.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="9">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_9.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="10">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_10.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="11">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_N.png" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="A_Style_FZMaterial_GearDisplay_Digital_ShiftLight" TargetType="local:FZMaterial">
+                <Setter Property="Visibility" Value="{Binding IsShiftLightOn, Converter={StaticResource A_FZBooleanToVisibilityConverter}}"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="0">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_R.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="1">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_Redline_1.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="2">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_Redline_2.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="3">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_Redline_3.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="4">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_Redline_4.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="5">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_Redline_5.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="6">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_Redline_6.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="7">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_Redline_7.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="8">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_Redline_8.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="9">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_Redline_9.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="10">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_Redline_10.png" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CurrentGear}" Value="11">
+                         <Setter Property="ImageSource" Value="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Gear_N.png" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="A_Style_FZMaterial_GaugeNumbers" TargetType="local:FZMaterial">
+                <Setter Property="Visibility" Value="{Binding IsVisible, Converter={StaticResource A_FZBooleanToVisibilityConverter}}"/>
+                <Setter Property="Width" Value="18" />
+                <Setter Property="Height" Value="18" />
+                <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
+                <Setter Property="RenderTransform">
+                    <Setter.Value>
+                        <TranslateTransform X="{Binding XPos}" Y="{Binding YPos}"/>
+                    </Setter.Value>
+                </Setter>
+                <Setter Property="Color" Value="{StaticResource A_Color_GaugeNumber}"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsRedline}" Value="True">
+                        <Setter Property="Color" Value="{StaticResource A_Color_GaugeNumber_Redline}"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding IsLit}" Value="True">
+                        <Setter Property="Color" Value="{StaticResource A_Color_GaugeNumber_Lit}"/>
+                    </DataTrigger>
+                    <MultiDataTrigger>
+                        <MultiDataTrigger.Conditions>
+                            <Condition Binding="{Binding IsRedline}" Value="True"/>
+                            <Condition Binding="{Binding IsLit}" Value="True"/>
+                        </MultiDataTrigger.Conditions>
+                        <Setter Property="Color" Value="{StaticResource A_Color_GaugeNumber_LitRedline}"/>
+                    </MultiDataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <!-- DIGITAL SPEEDOMETER -->
+
+            <DataTemplate x:Key="A_DataTemplate_DigitalSpeedometer">
+                <DataTemplate.Resources>
+                    <ImageSource x:Key="A_BitmapImage_ABSIcon_Off">/ForzaUI;component/Textures/Data_Bound/Anthem/HUD/HUD_Dial_Assist_Digital_ABS_Off.png</ImageSource>
+                    <ImageSource x:Key="A_BitmapImage_TCRIcon_Off">/ForzaUI;component/Textures/Data_Bound/Anthem/HUD/HUD_Dial_Assist_Digital_TCR_Off.png</ImageSource>
+                    <ImageSource x:Key="A_BitmapImage_STMIcon_Off">/ForzaUI;component/Textures/Data_Bound/Anthem/HUD/HUD_Dial_Assist_Digital_STM_Off.png</ImageSource>
+
+                    <ImageSource x:Key="A_BitmapImage_ABSIcon_On">/ForzaUI;component/Textures/Data_Bound/Anthem/HUD/HUD_Dial_Assist_Digital_ABS_On.png</ImageSource>
+                    <ImageSource x:Key="A_BitmapImage_TCRIcon_On">/ForzaUI;component/Textures/Data_Bound/Anthem/HUD/HUD_Dial_Assist_Digital_TCR_On.png</ImageSource>
+                    <ImageSource x:Key="A_BitmapImage_STMIcon_On">/ForzaUI;component/Textures/Data_Bound/Anthem/HUD/HUD_Dial_Assist_Digital_STM_On.png</ImageSource>
+                </DataTemplate.Resources>
+                <Grid DataContext="{Binding Path=DataContext, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}">
+                    <local:FZMaterial x:Name="Gears" Width="85" Height="86" ImageSource="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_GearContainer.png" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,253,35" Color="{StaticResource A_Color_Faded_HUDInfo_Digital}">
+                        <Grid Margin="-1,0,1,0" Width="85" Height="86">
+                            <local:FZMaterial x:Name="Gear" Style="{StaticResource A_Style_FZMaterial_GearDisplay_Digital}" /> <!-- Gear -->
+                            <local:FZMaterial x:Name="GearRedline" Style="{StaticResource A_Style_FZMaterial_GearDisplay_Digital_ShiftLight}" /> <!-- Gear w/ShiftLight -->
+                        </Grid>
+                    </local:FZMaterial>
+                    <StackPanel x:Name="SpeedNumbers" VerticalAlignment="Bottom" HorizontalAlignment="Right" Orientation="Horizontal" Margin="0,0,83,38">
+                        <local:FZMaterial x:Name="Hundred" Width="{StaticResource A_Double_Speed_Digital_Width}" Height="{StaticResource A_Double_Speed_Digital_Height}" Style="{StaticResource A_Style_FZMaterial_Speedometer_Speed_Hundred_Digital}" Margin="{StaticResource A_Thickness_Speed_Digital_Margin}"/> <!-- Hundred -->
+                        <local:FZMaterial x:Name="Ten" Width="{StaticResource A_Double_Speed_Digital_Width}" Height="{StaticResource A_Double_Speed_Digital_Height}" Style="{StaticResource A_Style_FZMaterial_Speedometer_Speed_Ten_Digital}" Margin="{StaticResource A_Thickness_Speed_Digital_Margin}"/> <!-- Ten -->
+                        <local:FZMaterial x:Name="One" Width="{StaticResource A_Double_Speed_Digital_Width}" Height="{StaticResource A_Double_Speed_Digital_Height}" Style="{StaticResource A_Style_FZMaterial_Speedometer_Speed_One_Digital}" Margin="{StaticResource A_Thickness_Speed_Digital_Margin}"/> <!-- One -->
+                    </StackPanel>
+                    <local:FZMaterial x:Name="Divider" ImageSource="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_Line.png" Height="{StaticResource A_Double_Speed_Digital_Height}" Width="33" Margin="0,0,63,38" HorizontalAlignment="Right" VerticalAlignment="Bottom" Color="{StaticResource A_Color_Faded_HUDInfo_Digital}"/>
+                    <Decorator HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,4,124">
+                        <local:FZMaterial x:Name="SpeedUnits" Style="{StaticResource A_Style_FZMaterial_Digital_SpeedUnits}" Width="64" Height="32" />
+                    </Decorator>
+                    <local:FZMaterial x:Name="ABS" Style="{StaticResource A_Style_FZMaterial_Digital_ABSLight}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,6,78"/>
+                    <local:FZMaterial x:Name="TCR" Style="{StaticResource A_Style_FZMaterial_Digital_TCRLight}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,12,50"/>
+                    <local:FZMaterial x:Name="STM" Style="{StaticResource A_Style_FZMaterial_Digital_STMLight}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,18,21"/>
+                    <local:FZMaterial x:Name="Gauge" Height="{StaticResource A_Double_Speedo_Digital_Height}" Width="{StaticResource A_Double_Speedo_Digital_Width}" RenderTransformOrigin="0.5,0.5" Margin="0,0,0,-5" VerticalAlignment="Bottom"> <!-- Gauge -->
+                        <local:FZMaterial.Preset>
+                            <local:FZMaterialPresetDigitalGauge FillAmount="{Binding GaugeFillAmount}" RedLineAmount="{Binding GaugeRedlineAmount}" SmallDash="{Binding GaugeSmallDashAmount}" LargeDash="{Binding GaugeLargeDashAmount}" />
+                        </local:FZMaterial.Preset>
+                    </local:FZMaterial> 
+                </Grid>
+            </DataTemplate>
+
+            <!-- ANALOG SPEEDOMETER -->
+
+            <DataTemplate x:Key="A_DataTemplate_AnalogSpeedometer">
+                <DataTemplate.Resources>
+                    <ImageSource x:Key="A_BitmapImage_ABSIcon_Off">/ForzaUI;component/Textures/Data_Bound/Anthem/HUD/HUD_Dial_Assist_Analogue_ABS_Off.png</ImageSource>
+                    <ImageSource x:Key="A_BitmapImage_TCRIcon_Off">/ForzaUI;component/Textures/Data_Bound/Anthem/HUD/HUD_Dial_Assist_Analogue_TCR_Off.png</ImageSource>
+                    <ImageSource x:Key="A_BitmapImage_STMIcon_Off">/ForzaUI;component/Textures/Data_Bound/Anthem/HUD/HUD_Dial_Assist_Analogue_STM_Off.png</ImageSource>
+
+                    <ImageSource x:Key="A_BitmapImage_ABSIcon_On">/ForzaUI;component/Textures/Data_Bound/Anthem/HUD/HUD_Dial_Assist_Analogue_ABS_On.png</ImageSource>
+                    <ImageSource x:Key="A_BitmapImage_TCRIcon_On">/ForzaUI;component/Textures/Data_Bound/Anthem/HUD/HUD_Dial_Assist_Analogue_TCR_On.png</ImageSource>
+                    <ImageSource x:Key="A_BitmapImage_STMIcon_On">/ForzaUI;component/Textures/Data_Bound/Anthem/HUD/HUD_Dial_Assist_Analogue_STM_On.png</ImageSource>
+                </DataTemplate.Resources>
+                <Grid DataContext="{Binding Path=DataContext, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}">
+                    <Grid Margin="0,14,-2,-14">
+                        <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[0]}" Style="{StaticResource A_Style_FZMaterial_GaugeNumbers}" ImageSource="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_RevNumbers_0.png"/>
+                        <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[1]}" Style="{StaticResource A_Style_FZMaterial_GaugeNumbers}" ImageSource="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_RevNumbers_1.png"/>
+                        <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[2]}" Style="{StaticResource A_Style_FZMaterial_GaugeNumbers}" ImageSource="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_RevNumbers_2.png"/>
+                        <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[3]}" Style="{StaticResource A_Style_FZMaterial_GaugeNumbers}" ImageSource="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_RevNumbers_3.png"/>
+                        <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[4]}" Style="{StaticResource A_Style_FZMaterial_GaugeNumbers}" ImageSource="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_RevNumbers_4.png"/>
+                        <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[5]}" Style="{StaticResource A_Style_FZMaterial_GaugeNumbers}" ImageSource="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_RevNumbers_5.png"/>
+                        <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[6]}" Style="{StaticResource A_Style_FZMaterial_GaugeNumbers}" ImageSource="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_RevNumbers_6.png"/>
+                        <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[7]}" Style="{StaticResource A_Style_FZMaterial_GaugeNumbers}" ImageSource="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_RevNumbers_7.png"/>
+                        <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[8]}" Style="{StaticResource A_Style_FZMaterial_GaugeNumbers}" ImageSource="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_RevNumbers_8.png"/>
+                        <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[9]}" Style="{StaticResource A_Style_FZMaterial_GaugeNumbers}" ImageSource="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_RevNumbers_9.png"/>
+                        <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[10]}" Style="{StaticResource A_Style_FZMaterial_GaugeNumbers}" ImageSource="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_RevNumbers_10.png"/>
+                        <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[11]}" Style="{StaticResource A_Style_FZMaterial_GaugeNumbers}" ImageSource="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_RevNumbers_11.png"/>
+                        <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[12]}" Style="{StaticResource A_Style_FZMaterial_GaugeNumbers}" ImageSource="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_RevNumbers_12.png"/>
+
+                        <local:FZMaterial x:Name="ABS" Style="{StaticResource A_Style_FZMaterial_Analog_ABSLight}" Margin="-106,0,0,94"/>
+                        <local:FZMaterial x:Name="TCR" Style="{StaticResource A_Style_FZMaterial_Analog_TCRLight}" Margin="0,0,0,148"/>
+                        <local:FZMaterial x:Name="STM" Style="{StaticResource A_Style_FZMaterial_Analog_STMLight}" Margin="106,0,0,94"/>
+
+                        <local:FZMaterial x:Name="Gauge" Height="{StaticResource A_Double_Speedo_Analog_Height}" Width="{StaticResource A_Double_Speedo_Analog_Width}" RenderTransformOrigin="0.5,0.5" Data="{StaticResource A_FZGeometry_AnalogGaugeMesh}"> <!-- Gauge -->
+                            <local:FZMaterial.Preset>
+                                <local:FZMaterialPresetAnalogGauge FillAmount="{Binding GaugeFillAmount}" RedLineAmount="{Binding GaugeRedlineAmount}" SmallDash="{Binding GaugeSmallDashAmount}" LargeDash="{Binding GaugeLargeDashAmount}" />
+                            </local:FZMaterial.Preset>
+                        </local:FZMaterial>
+
+                        <!-- NITRO SYSTEM II: NOS gauge, driven by the mod through RPMGaugeNumbers[16..20] -->
+                        <Grid Width="130" Height="9" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,116,0,0" IsHitTestVisible="False" Opacity="{Binding RPMGaugeNumbers[20].YPos}">
+                            <Border Width="30" Height="7" Margin="0,0,0,0" HorizontalAlignment="Left" Background="#33000000">
+                                <Border Background="#FF2DB2FF" HorizontalAlignment="Stretch" RenderTransformOrigin="0,0.5">
+                                    <Border.RenderTransform><ScaleTransform ScaleX="{Binding RPMGaugeNumbers[17].XPos}" ScaleY="1"/></Border.RenderTransform>
+                                </Border>
+                            </Border>
+                            <Border Width="30" Height="7" Margin="34,0,0,0" HorizontalAlignment="Left" Background="#33000000">
+                                <Border Background="#FF2DB2FF" HorizontalAlignment="Stretch" RenderTransformOrigin="0,0.5">
+                                    <Border.RenderTransform><ScaleTransform ScaleX="{Binding RPMGaugeNumbers[18].XPos}" ScaleY="1"/></Border.RenderTransform>
+                                </Border>
+                            </Border>
+                            <Border Width="30" Height="7" Margin="68,0,0,0" HorizontalAlignment="Left" Background="#33000000">
+                                <Border Background="#FF2DB2FF" HorizontalAlignment="Stretch" RenderTransformOrigin="0,0.5">
+                                    <Border.RenderTransform><ScaleTransform ScaleX="{Binding RPMGaugeNumbers[19].XPos}" ScaleY="1"/></Border.RenderTransform>
+                                </Border>
+                            </Border>
+                            <Border Width="30" Height="7" Margin="102,0,0,0" HorizontalAlignment="Left" Background="#33000000">
+                                <Border Background="#FF2DB2FF" HorizontalAlignment="Stretch" RenderTransformOrigin="0,0.5">
+                                    <Border.RenderTransform><ScaleTransform ScaleX="{Binding RPMGaugeNumbers[20].XPos}" ScaleY="1"/></Border.RenderTransform>
+                                </Border>
+                            </Border>
+                            <Border Width="130" Height="9" Margin="-1,-1,0,0" BorderBrush="#FF9EE4FF" BorderThickness="1" Opacity="{Binding RPMGaugeNumbers[16].XPos}"/>
+                        </Grid>
+                        <local:FZMaterial x:Name="Arc" ImageSource="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Analog_Arc.png" Width="70" Height="70" Color="{StaticResource A_Color_Faded_HUDInfo_Analog}" Margin="0,0,0,2"/>
+
+                        <local:FZMaterial x:Name="Gear" Style="{StaticResource A_Style_FZMaterial_GearDisplay}" Width="64" Height="64" Margin="0,0,0,0"/> <!-- Gear -->
+                        <local:FZMaterial x:Name="GearRedline" Style="{StaticResource A_Style_FZMaterial_GearDisplay_ShiftLight}" Width="64" Height="64" Margin="0,0,0,0"/> <!-- Gear w/ShiftLight -->
+
+                        <Decorator x:Name="Needle" Width="0" Height="0" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Decorator.RenderTransform>
+                                <RotateTransform Angle="{Binding NeedleAngle}" />
+                            </Decorator.RenderTransform>
+                            <local:FZMaterial Margin="0,-20,-143,-20" Width="113" Height="40" HorizontalAlignment="Right" VerticalAlignment="Center" >
+                                <local:FZMaterial.Preset>
+                                    <local:FZMaterialPresetAnalogNeedle BlurAmount="{Binding NeedleBlur}"/>
+                                </local:FZMaterial.Preset>
+                            </local:FZMaterial>
+                        </Decorator>
+                    </Grid>
+
+                    <StackPanel VerticalAlignment="Bottom" HorizontalAlignment="Right" Orientation="Vertical">
+                        <local:FZMaterial Style="{StaticResource A_Style_FZMaterial_Analog_SpeedUnits}" Width="64" Height="32" HorizontalAlignment="Right" /> <!-- MPH -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,20,0">
+                            <local:FZMaterial Width="{StaticResource A_Double_Speed_Analog_Width}" Height="{StaticResource A_Double_Speed_Analog_Height}"  Style="{StaticResource A_Style_FZMaterial_Speedometer_Speed_Hundred_Analog}" Margin="{StaticResource A_Thickness_Speed_Analog_Margin}"/> <!-- Hundred -->
+                            <local:FZMaterial Width="{StaticResource A_Double_Speed_Analog_Width}" Height="{StaticResource A_Double_Speed_Analog_Height}"  Style="{StaticResource A_Style_FZMaterial_Speedometer_Speed_Ten_Analog}" Margin="{StaticResource A_Thickness_Speed_Analog_Margin}"/> <!-- Ten -->
+                            <local:FZMaterial Width="{StaticResource A_Double_Speed_Analog_Width}" Height="{StaticResource A_Double_Speed_Analog_Height}"  Style="{StaticResource A_Style_FZMaterial_Speedometer_Speed_One_Analog}" Margin="{StaticResource A_Thickness_Speed_Analog_Margin}"/> <!-- One -->
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+            </DataTemplate>
+
+            <Style x:Key="A_Style_ContentControl_Speedometer" TargetType="ContentControl">
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsAnalog}" Value="True">
+                        <Setter Property="ContentTemplate" Value="{StaticResource A_DataTemplate_AnalogSpeedometer}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding IsAnalog}" Value="False">
+                        <Setter Property="ContentTemplate" Value="{StaticResource A_DataTemplate_DigitalSpeedometer}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <RadialGradientBrush x:Key="A_Brush_MapShadowBackground">
+                <GradientStop Color="#00000000" Offset="0"/>
+                <GradientStop Offset="1" Color="#00000000"/>
+            </RadialGradientBrush>
+
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <Grid x:Name="LayoutRoot">
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup x:Name="VisualStateGroup">
+                <VisualStateGroup.Transitions>
+                    <VisualTransition GeneratedDuration="0:0:0.0"/>
+                </VisualStateGroup.Transitions>
+                <VisualState x:Name="Hide">
+                    <Storyboard>
+                    <DoubleAnimationUsingKeyFrames Storyboard.TargetProperty="(UIElement.Opacity)" Storyboard.TargetName="LayoutRoot">
+                        <EasingDoubleKeyFrame KeyTime="0" Value="0"/>
+                    </DoubleAnimationUsingKeyFrames>
+                </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Show">
+                    <Storyboard>
+                        <DoubleAnimationUsingKeyFrames Storyboard.TargetProperty="(UIElement.Opacity)" Storyboard.TargetName="LayoutRoot">
+                            <EasingDoubleKeyFrame KeyTime="0" Value="1"/>
+                        </DoubleAnimationUsingKeyFrames>
+                    </Storyboard>
+                </VisualState>
+            </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+        <ContentControl HorizontalAlignment="Center" VerticalAlignment="Center" Style="{StaticResource A_Style_ContentControl_Speedometer}"/>
+    </Grid>
+</UserControl>
