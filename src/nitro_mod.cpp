@@ -34,8 +34,9 @@
 //     forward    FH2 +0x40  FH3 +0x90   (third row of the rotation; FH3 rows at +0x70/+0x80/+0x90)
 //     velocity   FH2 +0x50  FH3 +0x10   (FH3 also keeps its length at +0x12D4, written by SetVelocity)
 //   CWorldCollObjMan::Update: FH2 0x384C00 (player position at mgr+0x4F0), FH3 0x425D40 (at mgr+0x520).
-// Not ported yet (left off in this build): the purchasable Nitrous Kit (every car gets [FH3] Stage from the ini),
-// exhaust flames, camera shake / FOV, the NOS gauge and HUD theme, the MODS page settings.
+// Ported: push, Nitrous Kit upgrade (garage, per car), exhaust flames, camera shake / FOV, NOS gauge (analog + digital),
+// HUD theme, vignette, speed lines (3 tiers), refill / rewind. Not yet: the MODS page (the FH3 platform has none yet;
+// all settings are in the ini). See docs/FH3_PORT.md.
 #define NITRO_FH3 1
 static std::atomic<float> g_push_scale{2.0f};   // [FH3] PowerScale
 static const uintptr_t kFH3CarUpdate   = 0x1D1E300;
@@ -304,6 +305,7 @@ static void apply_hud_theme() {
         // The XAML is written with the Fast & Furious cyan; Original turns the NOS bar yellow.
         replace_all(xaml, "#FF2DB2FF", "#FFF4F444");   // fill: the yellow of the stock gear box
         replace_all(xaml, "#2AEAFAFF", "#2AFFFFB0");   // tip glow
+        replace_all(xaml, "#55EAFAFF", "#55FFFFB0");   // tip glow (digital bar)
         replace_all(xaml, "#22EAF8FF", "#22FFFFB0");   // tip glow, radial
     }
     if (!g_api->set_file(g_mod, k_hud_xaml.media_path, xaml.data(), xaml.size()))
@@ -2017,6 +2019,7 @@ static uint32_t fh3_car_exhaust_tips(char* car, uint8_t* msg) {
 // (db, zSql, nBytes, prepFlags, pOld, ppStmt, pzTail). Logged only, nothing is changed yet.
 typedef int (*FH3PrepareFn)(void*, const char*, int, unsigned, void*, void**, const char**);
 static FH3PrepareFn g_orig_prepare = nullptr;
+static bool g_research_log = false;   // [FH3] ResearchLog=1: the SQL / ownership / per-2-second diagnostics of the port
 static int g_force_stage = 0;   // [FH3] ForceStage (1-3): every car has that stage, the shop is ignored (0 = normal)
 static void fh3_save_last_garage(unsigned g) { wchar_t v[16]; nu_wide_num(v, (long)g); WritePrivateProfileStringW(L"FH3", L"LastGarage", v, g_ini_path); }
 // The Nitrous Kit rows for the game database (FH3 layout: the area link is its own table, no AreaId in UpgradeTypes).
@@ -2142,7 +2145,7 @@ static void fh3_repair_save(void* db, const char* z) {
 static int fh3_prep(void* db, const char* z, int n, unsigned fl, void* old, void** pp, const char** tail) {
     int r = g_orig_prepare(db, z, n, fl, old, pp, tail);
     static std::atomic<int> owned_log{0};
-    if (z && z[0] == 'S' && strncmp(z, "SELECT 1", 8) == 0 && owned_log.fetch_add(1) < 300 && g_api && g_mod) {
+    if (g_research_log && z && z[0] == 'S' && strncmp(z, "SELECT 1", 8) == 0 && owned_log.fetch_add(1) < 300 && g_api && g_mod) {
         char b[260]; snprintf(b, sizeof b, "own-check r=%d: %.220s", r, z); g_api->log(g_mod, b);
     }
     static std::atomic<int> fails{0};
@@ -2182,7 +2185,7 @@ static int detour_prepare(void* db, const char* z, int n, unsigned fl, void* old
         }
     }
     static std::atomic<int> left{900};
-    if (z && left.load() > 0 && readable_ptr(z, 16)) {
+    if (g_research_log && z && left.load() > 0 && readable_ptr(z, 16)) {
         const char* keys[] = {"UpgradeParts", "UpgradeTypes", "UpgradeAreas", "PurchasedParts", "Career_Garage SET", "List_UpgradeMotorParts", "NitroSystemII", "PartEnum = 26", "900470", "900471", "900472", "900473"};
         bool hit = false;
         for (const char* k : keys) if (strstr(z, k)) { hit = true; break; }
@@ -2638,14 +2641,18 @@ static void detour_speedo_tick(void* speedo, float rpm) {
                             float x;
                             float y;
                         } targets[8] = {
+#if NITRO_FH3
+                            {17, s1, sl_tier[4] + sl_tier[5]},   // Segment 1 (Bottom); Y = speed lines, fast tier
+#else
                             {17, s1, tip_x},                 // Segment 1 (Bottom); Y = digital glow offset
+#endif
                             {18, s2, vignette_alpha},        // Segment 2; Y = opacity of the blue nitro vignette
                             {19, s3, vig_b < 0.004f ? 0.0f : vig_b}, // Segment 3; Y = opacity of the wider blue glow (vignette layer B)
                             {20, s4, (gauge_visible || !g_hud_hide.load()) ? 1.0f : 0.0f},   // Segment 4 (Top); Y = opacity of the NOS frame (1 = shown)
                             {16, glow_scale, leading_angle}, // Active Glowing Tip Cap (X=Ratio, Y=Angle)
 #if NITRO_FH3
                             // FH3 (no speed lines in the XAML): the digital bar's glowing tip, one value per segment, only on the leading one
-                            {15, 0.0f, 0.0f},
+                            {15, sl_tier[0] + sl_tier[1], sl_tier[2] + sl_tier[3]},   // speed lines, slow and middle tiers
                             {14, dg[2], dg[3]},
                             {13, dg[0], dg[1]}
 #else
@@ -3128,7 +3135,8 @@ static void nitro_worker_thread() {
 
     // FH3 research: what the hooks see, every 5 seconds for the first minutes (the offsets come from reading the
     // code, not from a running game).
-    std::thread([] {
+    g_research_log = GetPrivateProfileIntW(L"FH3", L"ResearchLog", 0, g_ini_path) != 0;
+    if (g_research_log) std::thread([] {
         for (int i = 0; i < 300; ++i) {
             Sleep(2000);
             char b[480];
@@ -3502,7 +3510,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.52";
+    info.version          = "2.0.0-fh3.53";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;

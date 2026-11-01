@@ -1,4 +1,4 @@
-# NitroSystem II on Forza Horizon 3 (work in progress)
+# NitroSystem II on Forza Horizon 3
 
 Built against the FH3 Mod Platform (`include/fh3mod.h`), for the FH3 Xbox One build 1.0.125.0 (exe of 5 Jun 2018) run through Azimuth.
 The DLL goes into `fh3-mods` next to `azimuth.exe`; its settings file is `fh3-mods\NitroSystemII.ini`.
@@ -13,11 +13,42 @@ The DLL goes into `fh3-mods` next to `azimuth.exe`; its settings file is `fh3-mo
 Found by lining up both exes: CCarDynamics' secondary vtable (FH2 381 slots at +0x3A0, FH3 474 at +0x4B0) has the same run of
 getters/setters (GetPosition, SetPosition, GetVelocity, SetVelocity + speed, ...), 30 slots further on in FH3; the world manager update
 starts with the same code (`[rcx+0x270]`/`[rcx+0x540]` in FH3 vs `0x260`/`0x510`).
-Every car gets the stage in `[FH3] Stage` (default 2). The log prints an "FH3 check" line every 5 s for two minutes to confirm the offsets.
 
-## Still to port
-Garage Nitrous Kit (database + upgrade UI), exhaust flames (CarPresentation11 backfire), camera shake / FOV, NOS gauge + HUD theme
-(HUDStatusSpeedometer and FH3's own speedometer XAML), settings on the MODS page.
+
+## Status (fh3.53)
+| Feature | FH3 |
+|---|---|
+| Push, buildup, tank, lockout (no 33% lock), airborne cut | done |
+| Nitrous Kit upgrade, per owned car (garage id) | done, see below |
+| Exhaust flames | done (fh3.35) |
+| Camera shake, wider FOV | done |
+| NOS gauge, analog (one arc + glowing tip) and digital (4 segments) | done; hidden on cars without a kit |
+| HUD theme (`HudTheme=FF` cyan / `Original` yellow) | done (bar colour only; FH3 keeps its own gear / assist icons) |
+| Blue vignette, speed lines | done (speed lines: 3 tiers instead of 6, the free HUD items) |
+| Refill on race start, refund on rewind, rumble, sounds | shared code, as FH2 |
+| Backfire on all cars (`UPDATE BackfireLevels`) | done |
+| MODS page | not yet: the FH3 platform has no Mods page; every setting is in `fh3-mods\NitroSystemII.ini` with the FH2 keys |
+
+Diagnostics: `[FH3] ResearchLog=1` brings back the SQL / ownership log and the 2-second "FH3 check" lines.
+`[FH3] ForceStage=1..3` gives every car that stage (testing; 0 = the shop decides).
+
+## Nitrous Kit on FH3
+- FH3 maps a part enum to a garage column through a table in the exe (32-byte entries: list table, column, ...).
+  Enums 0..44 are all taken; 47 (the FH2 choice) is past the table, so the shop shows it but A does nothing.
+  44 is the aspiration conversion page (its own query on `List_Aspiration`). The kit uses **26, the Quad Turbo slot**:
+  no `UpgradeTypes` row in FH3 uses it (quad turbos come through the aspiration page).
+- Rows: `UpgradeTypes` 7452 (enum 26, area 1 Engine), `Upgrades` 74520..74523, view rows PartId 900470..900473
+  joined into `Profile0_View_UpgradeParts`. No rows in `List_UpgradeEngineTurboQuad`: a real row with a made-up
+  engine crashed the car load (game+0x19FA6EF).
+- Install: the game writes the whole garage row (`QuadTurbo=<id>, ..., AspirationTypeId=4`) or `SET QuadTurbo = <id>`.
+  The mod reads the stage from the id, stores it (`[GarageNitro]`), writes `QuadTurbo=-1` and keeps the car's aspiration.
+  `SET AspirationTypeId=4` right after a kit install is rewritten too. A save that still has one of our ids is cleaned
+  before the garage table is first read (through the game's `sqlite3_exec`, game+0x421D0).
+- Questions answered by the mod: the per-engine level query (`SELECT Level ... EngineId=`), the manufacturer (-1).
+- Ownership: the game forgets a part once another one of its type is installed. The mod keeps the bought stages per car
+  (`[GarageOwned]`, bit n = stage n) and inserts the matching `Profile0_Career_PurchasedParts` rows (manufacturer -1,
+  price 0) before the part list or an ownership check, so stock and bought stages show as owned. Answering the stock
+  check with a bare `SELECT 1` crashed the setup apply (game+0x382149): a real row is needed.
 
 ## Exhaust flames (research)
 - CCarPresentationDeferred (vt 0x468B058) slot 93 = 0x1DFD9C0(deferred, tips[0x280]): queues the backfire to the presentation thread (handler 0x1DC9D60).
