@@ -2026,16 +2026,16 @@ static void fh3_kit_sql(std::string& out) {
     const char* iconlg = "GAME:\\Media\\UI\\Textures\\Data_Bound\\Upgrade_Parts\\Engine_Power\\engine_power_LG_Icon.swatchbin";
     const char* stock = "GAME:\\Media\\UI\\Textures\\Data_Bound\\Upgrade_Parts\\stock_Icon.swatchbin";
     const char* stocklg = "GAME:\\Media\\UI\\Textures\\Data_Bound\\Upgrade_Parts\\stock_LG_Icon.swatchbin";
-    snprintf(b, sizeof b, "INSERT OR REPLACE INTO UpgradeTypes (id, PartEnum, IsException, DisplayOrder, EverymanUpgradeDisplayOrder, Name, Description, IconPath, ImagePath) VALUES (%d, %d, 1, 15, -1, 'Nitrous Kit', 'Nitrous oxide injection. Hold the nitro button while driving; a higher stage pushes harder.', '%s', '%s');\n", NU_TYPE_ID, NU_ENUM, icon, iconlg);
+    snprintf(b, sizeof b, "INSERT OR REPLACE INTO UpgradeTypes (id, PartEnum, IsException, DisplayOrder, EverymanUpgradeDisplayOrder, Name, Description, IconPath, ImagePath) VALUES (%d, %d, 0, 15, -1, 'Nitrous Kit', 'Nitrous oxide injection. Hold the nitro button while driving; a higher stage pushes harder.', '%s', '%s');\n", NU_TYPE_ID, NU_ENUM, icon, iconlg);
     out += b;
     snprintf(b, sizeof b, "INSERT OR REPLACE INTO UpgradeAreaForUpgradeType (id, UpgradeAreaId, UpgradeTypeId) VALUES (%d, 1, %d);\n", NU_TYPE_ID, NU_TYPE_ID);
     out += b;
     static const char* names[NU_LEVELS] = {"Stock", "Stage 1 Nitrous", "Stage 2 Nitrous", "Stage 3 Nitrous"};
     for (int l = 0; l < NU_LEVELS; ++l) {
-        snprintf(b, sizeof b, "INSERT OR REPLACE INTO Upgrades (id, TypeId, IsException, Name, Level, Description, IconPath, ImagePath) VALUES (%d, '%d', 1, '%s', %d, '%s', '%s', '%s');\n",
+        snprintf(b, sizeof b, "INSERT OR REPLACE INTO Upgrades (id, TypeId, IsException, Name, Level, Description, IconPath, ImagePath) VALUES (%d, '%d', 0, '%s', %d, '%s', '%s', '%s');\n",
                  NU_UPGRADE_BASE + l, NU_TYPE_ID, names[l], l, l ? "Nitrous injection." : "No nitrous system fitted.", l ? icon : stock, l ? iconlg : stocklg);
         out += b;
-        snprintf(b, sizeof b, "INSERT OR REPLACE INTO List_UpgradeMotorParts (Id, MotorID, Level, IsStock, ManufacturerID, MassDiff, WeightDistDiff, Price, TorqueScale) VALUES (%ld, %d, %d, %d, 0, 0.0, 0.0, %ld, 1.0);\n",
+        snprintf(b, sizeof b, "INSERT OR REPLACE INTO List_UpgradeEngineTurboSingle (Id, EngineID, Level, IsStock, ManufacturerID, MassDiff, WeightDistDiff, Price, MomentInertia, MaxScale, PowerMaxScale, MinScale, PowerMinScale, RobScale, TorqueDropOffRPM0, TorqueDropOffRPM1, TorqueDropOffScale0, TorqueDropOffScale1) VALUES (%ld, %d, %d, %d, 0, 0.0, 0.0, %ld, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 9000.0, 15000.0, 1.0, 0.75);\n",
                  (long)(NU_ID_BASE + l), NU_MOTOR_ID, l, l == 0, l ? nu_cfg.price[l] : 0L);
         out += b;
     }
@@ -2063,7 +2063,7 @@ static int detour_prepare(void* db, const char* z, int n, unsigned fl, void* old
     }
     static std::atomic<int> left{400};
     if (z && left.load() > 0 && readable_ptr(z, 16)) {
-        const char* keys[] = {"UpgradeParts", "UpgradeTypes", "UpgradeAreas", "PurchasedParts", "Career_Garage SET", "List_UpgradeMotorParts", "NitroSystemII", "PartEnum = 44", "900470", "900471", "900472", "900473"};
+        const char* keys[] = {"UpgradeParts", "UpgradeTypes", "UpgradeAreas", "PurchasedParts", "Career_Garage SET", "List_UpgradeMotorParts", "NitroSystemII", "PartEnum = 26", "900470", "900471", "900472", "900473"};
         bool hit = false;
         for (const char* k : keys) if (strstr(z, k)) { hit = true; break; }
         if (hit && (strncmp(z, "CREATE INDEX", 12) == 0 || strncmp(z, "CREATE TABLE", 12) == 0 || strstr(z, "WHERE 1=2") ||
@@ -2071,7 +2071,7 @@ static int detour_prepare(void* db, const char* z, int n, unsigned fl, void* old
         if (hit && left.fetch_sub(1) > 0) {
             char b[900];
             size_t len = n < 0 ? strlen(z) : (size_t)n;
-            const bool kitrel = strstr(z, "PartEnum = 44") || strstr(z, "9004") || strstr(z, "PurchasedParts") || strstr(z, "Career_Garage SET");
+            const bool kitrel = strstr(z, "PartEnum = 26") || strstr(z, "9004") || strstr(z, "PurchasedParts") || strstr(z, "Career_Garage SET");
             if (len > (kitrel ? 3400 : 300)) len = kitrel ? 3400 : 300;
             char* big = (char*)malloc(len + 16);
             if (big) { snprintf(big, len + 16, "sql: %.*s", (int)len, z); for (char* c = big; *c; ++c) if (*c == '\n' || *c == '\r' || *c == '\t') *c = ' '; if (g_api && g_mod) g_api->log(g_mod, big); free(big); }
@@ -3382,7 +3382,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.44";
+    info.version          = "2.0.0-fh3.45";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
