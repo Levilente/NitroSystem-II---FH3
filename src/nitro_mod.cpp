@@ -642,6 +642,15 @@ static bool install_probe(char* base) {
     return true;
 }
 
+// __try doesn't catch in this build (mingw), so pointers are checked before they're read.
+static bool readable_ptr(const void* p, size_t n) {
+    if ((uintptr_t)p < 0x10000) return false;
+    MEMORY_BASIC_INFORMATION mbi{};
+    if (!VirtualQuery(p, &mbi, sizeof mbi) || mbi.State != MEM_COMMIT) return false;
+    if (mbi.Protect & (PAGE_GUARD | PAGE_NOACCESS)) return false;
+    return (const char*)p + n <= (const char*)mbi.BaseAddress + mbi.RegionSize;
+}
+
 static void probe_report(char* base) {
     // the player's car: the object (seen through any slot) nearest the player position
     static uint64_t player_obj = 0;
@@ -651,6 +660,7 @@ static void probe_report(char* base) {
         __try {
             const char* obj = (const char*)g_probe[k].last_this - kFH3CarVtableThis[1];
             const float* p = (const float*)(obj + kFH3CarPos);
+            if (!g_probe[k].last_this || !readable_ptr(p, 12)) continue;
             float dx = p[0] - g_player_pos[0], dy = p[1] - g_player_pos[1], dz = p[2] - g_player_pos[2];
             float d = sqrtf(dx * dx + dy * dy + dz * dz);
             if (d < best) best = d, best_obj = (uint64_t)obj;
@@ -2072,7 +2082,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.4";
+    info.version          = "2.0.0-fh3.5";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
