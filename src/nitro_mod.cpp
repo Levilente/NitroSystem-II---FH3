@@ -1736,7 +1736,8 @@ static void fh3_drive_flames() {
         static uint32_t built_mask = 0;
         static uint64_t built_tick = 0;
         static void* built_for = nullptr;
-        if (built_for != g_fh3_pres.load() || now - built_tick > 1000) {
+        // built once per car; only a failed build is retried (once a second) until the model's locators are there
+        if (built_for != g_fh3_pres.load() || (!built_mask && now - built_tick > 1000)) {
             built_for = g_fh3_pres.load();
             built_tick = now;
             if (!fh3_build_locator_tips(built, &built_mask)) built_mask = 0;
@@ -2896,7 +2897,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.24";
+    info.version          = "2.0.0-fh3.25";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
