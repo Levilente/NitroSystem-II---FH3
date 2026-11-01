@@ -168,8 +168,22 @@ static NuEntry *nu_cache_get(long garage) {
     return c;
 }
 
+/* levels the player has bought for a car: bit n = stage n (the game forgets a part once another one is installed) */
+static long nu_owned_mask(long garage) {
+    if (!nu_ini[0] || garage <= 0) return 0;
+    wchar_t k[16]; nu_wide_num(k, garage);
+    return (long)GetPrivateProfileIntW(L"GarageOwned", k, 0, nu_ini);
+}
+static void nu_mark_owned(long garage, int lvl) {
+    if (!nu_ini[0] || garage <= 0 || lvl <= 0) return;
+    long m = nu_owned_mask(garage) | (1L << lvl);
+    wchar_t k[16], v[16]; nu_wide_num(k, garage); nu_wide_num(v, m);
+    WritePrivateProfileStringW(L"GarageOwned", k, v, nu_ini);
+}
+
 static void nu_store(NuEntry *c, long ord, int lvl) {
     c->level = lvl;
+    nu_mark_owned((long)c->garage, lvl);
     if (ord > 0) c->ord = (LONG)ord;
     if ((long)c->garage == (long)nu_active_garage) nu_cur_level = lvl;
     if (!nu_ini[0]) return;
