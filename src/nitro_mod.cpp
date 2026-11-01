@@ -507,11 +507,22 @@ static bool is_player_car(void* car, uint64_t now) {
 
     float mine;
     if (!car_dist2(car, off, &mine) || mine > kPlayerRadius2) return false;
+    // FH3: the world manager's position is ~15 m from the car (a camera point), so traffic can come nearer to it
+    // than the player's car. Once found, the player's car stays the player's while it's within 40 m.
+    static void* sticky = nullptr;
+    static uint64_t sticky_seen = 0;
+    if (sticky && sticky != car && now - sticky_seen < 300) {
+        float d;
+        if (car_dist2(sticky, off, &d) && d < kStickyRadius2) return false;
+    }
+    if (car == sticky) { sticky_seen = now; return true; }
     for (const auto& s : g_seen) {
         if (!s.ptr || s.ptr == car || now - s.tick > 150) continue;
         float other;
         if (car_dist2(s.ptr, off, &other) && other < mine) return false;
     }
+    sticky = car;
+    sticky_seen = now;
     return true;
 }
 
@@ -742,7 +753,8 @@ typedef uint64_t (*FH3CarUpdateFn)(void* this_ptr, void* rdx, float dt, void* r9
 static FH3CarUpdateFn g_orig_car_update = nullptr;
 // FH3: the same push was about six times as strong as in FH2 (2 s of nitro to 300 mph), so it's scaled down
 // ([FH3] PushScale), and the real effect is measured (speed from the car's movement, before and during nitro).
-static std::atomic<float> g_push_scale{0.17f};
+static std::atomic<float> g_push_scale{1.0f};
+static std::atomic<float> g_engine_accel{0.0f};
 static std::atomic<float> g_meas_accel_boost{0.0f}, g_meas_accel_plain{0.0f}, g_meas_speed{0.0f};
 static std::atomic<int> g_cars_seen{0};
 static std::atomic<float> g_last_dt{0.0f};
@@ -807,27 +819,44 @@ static void nitro_tick(void* this_ptr, float dt) {
             grounded = update_grounded(this_ptr, vel, dt, now);
         }
 
-        if (mine && grounded && g_enabled.load() && g_nitro_active.load() && nu_level() > 0) {
-            float boost = g_current_boost.load();
-            if (boost > 1.0f) {
-                float dir[3] = {fwd[0], fwd[1], fwd[2]};
-                bool apply = true;
-                int up = g_up_axis.load();
-                if (up >= 0) {
-                    dir[up] = 0.0f;
-                    float len = sqrtf(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
-                    if (len < 0.3f) apply = false;
-                    else { dir[0] /= len; dir[1] /= len; dir[2] /= len; }
-                }
-                if (apply) {
-                    float dt_use = (dt > 0.001f && dt < 0.1f) ? dt : 0.01667f;
-                    float impulse = (boost - 1.0f) * 22.0f * dt_use * g_push_scale.load();
-                    vel[0] += dir[0] * impulse;
-                    vel[1] += dir[1] * impulse;
-                    vel[2] += dir[2] * impulse;
+        // FH3: nitro as more engine power. The car's own acceleration along its nose (from one tick's velocity
+        // change, measured from what the previous tick left, so the nitro's own share isn't counted) is what the
+        // engine and drivetrain do right now; nitro adds (boost - 1) times that, so it pushes hard in the low gears,
+        // fades as drag eats the power at speed, and does nothing while you're off the throttle, shifting or braking.
+        if (mine) {
+            static void* tracked = nullptr;
+            static float prev_along = 0.0f, accel = 0.0f;
+            int up = g_up_axis.load();
+            float dir[3] = {fwd[0], fwd[1], fwd[2]};
+            if (up >= 0) dir[up] = 0.0f;
+            float len = sqrtf(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+            bool level = len > 0.3f;
+            if (level) { dir[0] /= len; dir[1] /= len; dir[2] /= len; }
+            float along = vel[0] * dir[0] + vel[1] * dir[1] + vel[2] * dir[2];
+            float dt_use = (dt > 0.0005f && dt < 0.05f) ? dt : 1.0f / 360.0f;
+            if (tracked == this_ptr) {
+                float a = (along - prev_along) / dt_use;
+                if (a > -40.0f && a < 40.0f) accel += (a - accel) * 0.08f;   // ~30 ms smoothing; crashes ignored
+            } else {
+                tracked = this_ptr;
+                accel = 0.0f;
+            }
+            g_engine_accel.store(accel);
+            float push = 0.0f;
+            if (grounded && level && g_enabled.load() && g_nitro_active.load() && nu_level() > 0) {
+                float boost = g_current_boost.load();
+                if (boost > 1.0f && accel > 0.0f && along > 0.5f) {
+                    float a_push = (boost - 1.0f) * accel * g_push_scale.load();
+                    float cap = (boost - 1.0f) * 15.0f;
+                    if (a_push > cap) a_push = cap;
+                    push = a_push * dt_use;
+                    vel[0] += dir[0] * push;
+                    vel[1] += dir[1] * push;
+                    vel[2] += dir[2] * push;
                     g_boosted_frames.fetch_add(1, std::memory_order_relaxed);
                 }
             }
+            prev_along = along + push;
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
     }
@@ -1798,11 +1827,11 @@ static void nitro_worker_thread() {
                 if (c.ptr && now - c.tick < 1000) ++cars;
             snprintf(b, sizeof b,
                      "FH3 check: %llu car updates in 2 s (dt %.4f), %d cars, player pos %s (%.0f, %.0f, %.0f), player car %p at %.1f m from it, "
-                     "speed %.1f m/s (game's own %.1f, measured %.1f), accel %.1f m/s2 plain / %.1f with nitro (push scale %.2f), up axis %d, boosted ticks %llu",
+                     "speed %.1f m/s (game's own %.1f, measured %.1f), accel %.1f m/s2 plain / %.1f with nitro (engine %.1f, power scale %.2f), up axis %d, boosted ticks %llu",
                      (unsigned long long)(frames - last_frames), g_last_dt.load(), cars,
                      now - g_player_pos_tick.load() < 1000 ? "seen" : "not seen", g_player_pos[0], g_player_pos[1], g_player_pos[2],
                      g_player_cardynamics, g_diag_player_dist.load(), g_player_speed.load(), g_diag_speed_field.load(), g_meas_speed.load(),
-                     g_meas_accel_plain.load(), g_meas_accel_boost.load(), g_push_scale.load(), g_up_axis.load(),
+                     g_meas_accel_plain.load(), g_meas_accel_boost.load(), g_engine_accel.load(), g_push_scale.load(), g_up_axis.load(),
                      (unsigned long long)g_boosted_frames.load());
             last_frames = frames;
             g_api->log(g_mod, b);
@@ -2150,7 +2179,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.7";
+    info.version          = "2.0.0-fh3.8";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
@@ -2176,10 +2205,13 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
         WritePrivateProfileStringW(L"FH3", L"Stage", v, g_ini_path);
         nu_cur_level = stage;
         wchar_t buf[32] = {};
-        GetPrivateProfileStringW(L"FH3", L"PushScale", L"", buf, 32, g_ini_path);
-        float scale = buf[0] ? (float)_wtof(buf) : 0.17f;
-        if (!(scale > 0.0f && scale <= 2.0f)) scale = 0.17f;
-        if (!buf[0]) WritePrivateProfileStringW(L"FH3", L"PushScale", L"0.17", g_ini_path);
+        // [FH3] PowerScale: 1 = nitro multiplies the engine's push by the stage's boost (1.2 / 1.4 / 1.6x);
+        // 2 doubles the extra, 0.5 halves it. (PushScale was the old, constant-push setting.)
+        WritePrivateProfileStringW(L"FH3", L"PushScale", nullptr, g_ini_path);
+        GetPrivateProfileStringW(L"FH3", L"PowerScale", L"", buf, 32, g_ini_path);
+        float scale = buf[0] ? (float)_wtof(buf) : 1.0f;
+        if (!(scale > 0.0f && scale <= 5.0f)) scale = 1.0f;
+        if (!buf[0]) WritePrivateProfileStringW(L"FH3", L"PowerScale", L"1.0", g_ini_path);
         g_push_scale.store(scale);
         char msg[96];
         snprintf(msg, sizeof msg, "FH3 build: every car has Nitrous Kit stage %d ([FH3] Stage in the ini), boost %.1fx", stage, nu_boost(stage));
