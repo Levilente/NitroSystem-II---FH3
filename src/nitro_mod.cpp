@@ -601,7 +601,7 @@ static bool update_grounded(void* car, const float* vel, float dt, uint64_t now)
 // with 474, the second used at this+0x4B0) is pointed at a small stub that counts the call, remembers rcx and jumps
 // on to the game's function. The log then lists the busiest slots and how far the car they ran on is from the
 // player, which tells the per-tick update apart.
-struct ProbeSlot { volatile uint64_t calls; volatile uint64_t last_this; uint64_t target; };
+struct ProbeSlot { volatile uint64_t calls; volatile uint64_t last_this; volatile uint64_t player_this; volatile uint64_t player_calls; uint64_t target; };
 static ProbeSlot* g_probe = nullptr;
 static int g_probe_count = 0;
 static const uintptr_t kFH3CarVtables[2] = {0x4682578, 0x4682608};  // TRefCountedObjectThreadSafeWithDeletionInfo<CCarDynamics>, the class the game makes
@@ -624,14 +624,16 @@ static bool install_probe(char* base) {
             unsigned char* c = code + 48 * k;
             // lock inc qword [calls] ; mov [last_this], rcx ; jmp [target]   (rip-relative, absolute via movabs to be safe)
             int n = 0;
-            c[n++] = 0x50;                                              // push rax
+            c[n++] = 0x50;                                                              // push rax
             c[n++] = 0x48; c[n++] = 0xB8; *(uint64_t*)(c + n) = (uint64_t)ps; n += 8;   // mov rax, ps
-            c[n++] = 0xF0; c[n++] = 0x48; c[n++] = 0xFF; c[n++] = 0x00;            // lock inc qword [rax]
-            c[n++] = 0x48; c[n++] = 0x89; c[n++] = 0x48; c[n++] = 0x08;            // mov [rax+8], rcx
-            c[n++] = 0x58;                                              // pop rax
-            c[n++] = 0xFF; c[n++] = 0x25; *(int32_t*)(c + n) = 0; n += 4;          // jmp [rip+0]
-            // the jump target follows (48-byte stubs: 26 bytes of code, then the target)
-            *(uint64_t*)(c + n) = ps->target;
+            c[n++] = 0xF0; c[n++] = 0x48; c[n++] = 0xFF; c[n++] = 0x00;                 // lock inc qword [rax]
+            c[n++] = 0x48; c[n++] = 0x89; c[n++] = 0x48; c[n++] = 0x08;                 // mov [rax+8], rcx
+            c[n++] = 0x48; c[n++] = 0x3B; c[n++] = 0x48; c[n++] = 0x10;                 // cmp rcx, [rax+0x10]
+            c[n++] = 0x75; c[n++] = 0x05;                                               // jne +5
+            c[n++] = 0xF0; c[n++] = 0x48; c[n++] = 0xFF; c[n++] = 0x40; c[n++] = 0x18;  // lock inc qword [rax+0x18]
+            c[n++] = 0x58;                                                              // pop rax
+            c[n++] = 0xFF; c[n++] = 0x25; *(int32_t*)(c + n) = 0; n += 4;               // jmp [rip+0]
+            *(uint64_t*)(c + n) = ps->target;                                           // 45 bytes in all
             vt[i] = (uint64_t)c;
         }
         VirtualProtect(vt, 8 * kFH3CarVtableSlots[v], old, &old);
@@ -641,33 +643,48 @@ static bool install_probe(char* base) {
 }
 
 static void probe_report(char* base) {
+    // the player's car: the object (seen through any slot) nearest the player position
+    static uint64_t player_obj = 0;
+    float best = 40.0f;
+    uint64_t best_obj = 0;
+    for (int k = kFH3CarVtableSlots[0]; k < g_probe_count; ++k) {
+        __try {
+            const char* obj = (const char*)g_probe[k].last_this - kFH3CarVtableThis[1];
+            const float* p = (const float*)(obj + kFH3CarPos);
+            float dx = p[0] - g_player_pos[0], dy = p[1] - g_player_pos[1], dz = p[2] - g_player_pos[2];
+            float d = sqrtf(dx * dx + dy * dy + dz * dz);
+            if (d < best) best = d, best_obj = (uint64_t)obj;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+    if (best_obj && best_obj != player_obj) {
+        player_obj = best_obj;
+        for (int k = 0; k < g_probe_count; ++k) {
+            int v = k < kFH3CarVtableSlots[0] ? 0 : 1;
+            g_probe[k].player_this = player_obj + kFH3CarVtableThis[v];
+        }
+        char b[96];
+        snprintf(b, sizeof b, "probe: the player's car object is %p (%.1f m from the player position)", (void*)player_obj, best);
+        g_api->log(g_mod, b);
+        g_player_cardynamics = (void*)player_obj;
+    }
     static uint64_t prev[600];
-    struct Row { int k; uint64_t d; float dist; };
+    struct Row { int k; uint64_t d; };
     Row rows[600];
     int nrows = 0;
     for (int k = 0; k < g_probe_count; ++k) {
-        uint64_t c = g_probe[k].calls, d = c - prev[k];
+        uint64_t c = g_probe[k].player_calls, d = c - prev[k];
         prev[k] = c;
-        if (!d) continue;
-        int v = k < kFH3CarVtableSlots[0] ? 0 : 1;
-        float dist = -1.0f;
-        __try {
-            const char* obj = (const char*)g_probe[k].last_this - kFH3CarVtableThis[v];
-            const float* p = (const float*)(obj + kFH3CarPos);
-            float dx = p[0] - g_player_pos[0], dy = p[1] - g_player_pos[1], dz = p[2] - g_player_pos[2];
-            dist = sqrtf(dx * dx + dy * dy + dz * dz);
-        } __except (EXCEPTION_EXECUTE_HANDLER) {}
-        rows[nrows++] = {k, d, dist};
+        if (d) rows[nrows++] = {k, d};
     }
     for (int a = 0; a < nrows; ++a)
         for (int b = a + 1; b < nrows; ++b)
             if (rows[b].d > rows[a].d) { Row t = rows[a]; rows[a] = rows[b]; rows[b] = t; }
-    char line[1400];
-    int n = snprintf(line, sizeof line, "probe (calls in 5 s, slot = vtable/index -> game+rva, car distance from the player):");
-    for (int a = 0; a < nrows && a < 28 && n < (int)sizeof line - 80; ++a) {
+    char line[1600];
+    int n = snprintf(line, sizeof line, "probe (calls on the player's car in 5 s, vtable/slot -> game+rva):");
+    for (int a = 0; a < nrows && a < 60 && n < (int)sizeof line - 40; ++a) {
         int k = rows[a].k, v = k < kFH3CarVtableSlots[0] ? 0 : 1, i = v ? k - kFH3CarVtableSlots[0] : k;
-        n += snprintf(line + n, sizeof line - n, " | %c%d->%llX x%llu %.0fm", v ? 'S' : 'P', i,
-                      (unsigned long long)(g_probe[k].target - (uint64_t)base), (unsigned long long)rows[a].d, rows[a].dist);
+        n += snprintf(line + n, sizeof line - n, " %c%d->%llX x%llu", v ? 'S' : 'P', i,
+                      (unsigned long long)(g_probe[k].target - (uint64_t)base), (unsigned long long)rows[a].d);
     }
     g_api->log(g_mod, line);
 }
@@ -2055,7 +2072,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.3";
+    info.version          = "2.0.0-fh3.4";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
