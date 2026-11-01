@@ -2115,6 +2115,10 @@ static void fh3_repair_save(void* db, const char* z) {
 
 static int fh3_prep(void* db, const char* z, int n, unsigned fl, void* old, void** pp, const char** tail) {
     int r = g_orig_prepare(db, z, n, fl, old, pp, tail);
+    static std::atomic<int> owned_log{0};
+    if (z && z[0] == 'S' && strncmp(z, "SELECT 1", 8) == 0 && owned_log.fetch_add(1) < 300 && g_api && g_mod) {
+        char b[260]; snprintf(b, sizeof b, "own-check r=%d: %.220s", r, z); g_api->log(g_mod, b);
+    }
     static std::atomic<int> fails{0};
     if (r != 0 && z && fails.fetch_add(1) < 40 && g_api && g_mod) {
         char b[700]; snprintf(b, sizeof b, "prepare failed (%d): %.500s", r, z);
@@ -3466,7 +3470,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.49";
+    info.version          = "2.0.0-fh3.50";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
