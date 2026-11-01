@@ -524,7 +524,9 @@
                                 <Grid HorizontalAlignment="Stretch" RenderTransformOrigin="0.0,0.5">
                                     <Grid.RenderTransform><ScaleTransform ScaleX="{Binding XPos}"/></Grid.RenderTransform>
                                     <Rectangle Fill="#FF2DB2FF"/>
-                                    <Rectangle Width="2" HorizontalAlignment="Right" Fill="#FFEAF8FF"/>
+                                    <Rectangle Width="16" HorizontalAlignment="Right" Fill="#2AEAFAFF" Opacity="{Binding Path=DataContext.RPMGaugeNumbers[13].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"/>
+                                    <Rectangle Width="8" HorizontalAlignment="Right" Fill="#55EAFAFF" Opacity="{Binding Path=DataContext.RPMGaugeNumbers[13].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"/>
+                                    <Rectangle Width="3" HorizontalAlignment="Right" Fill="#FFFFFFFF" Opacity="{Binding Path=DataContext.RPMGaugeNumbers[13].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"/>
                                 </Grid>
                             </Grid>
                             <Grid DataContext="{Binding RPMGaugeNumbers[18]}" Width="79" Height="8" Margin="84,0,0,0" HorizontalAlignment="Left">
@@ -532,7 +534,9 @@
                                 <Grid HorizontalAlignment="Stretch" RenderTransformOrigin="0.0,0.5">
                                     <Grid.RenderTransform><ScaleTransform ScaleX="{Binding XPos}"/></Grid.RenderTransform>
                                     <Rectangle Fill="#FF2DB2FF"/>
-                                    <Rectangle Width="2" HorizontalAlignment="Right" Fill="#FFEAF8FF"/>
+                                    <Rectangle Width="16" HorizontalAlignment="Right" Fill="#2AEAFAFF" Opacity="{Binding Path=DataContext.RPMGaugeNumbers[13].YPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"/>
+                                    <Rectangle Width="8" HorizontalAlignment="Right" Fill="#55EAFAFF" Opacity="{Binding Path=DataContext.RPMGaugeNumbers[13].YPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"/>
+                                    <Rectangle Width="3" HorizontalAlignment="Right" Fill="#FFFFFFFF" Opacity="{Binding Path=DataContext.RPMGaugeNumbers[13].YPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"/>
                                 </Grid>
                             </Grid>
                             <Grid DataContext="{Binding RPMGaugeNumbers[19]}" Width="79" Height="8" Margin="168,0,0,0" HorizontalAlignment="Left">
@@ -540,7 +544,9 @@
                                 <Grid HorizontalAlignment="Stretch" RenderTransformOrigin="0.0,0.5">
                                     <Grid.RenderTransform><ScaleTransform ScaleX="{Binding XPos}"/></Grid.RenderTransform>
                                     <Rectangle Fill="#FF2DB2FF"/>
-                                    <Rectangle Width="2" HorizontalAlignment="Right" Fill="#FFEAF8FF"/>
+                                    <Rectangle Width="16" HorizontalAlignment="Right" Fill="#2AEAFAFF" Opacity="{Binding Path=DataContext.RPMGaugeNumbers[14].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"/>
+                                    <Rectangle Width="8" HorizontalAlignment="Right" Fill="#55EAFAFF" Opacity="{Binding Path=DataContext.RPMGaugeNumbers[14].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"/>
+                                    <Rectangle Width="3" HorizontalAlignment="Right" Fill="#FFFFFFFF" Opacity="{Binding Path=DataContext.RPMGaugeNumbers[14].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"/>
                                 </Grid>
                             </Grid>
                             <Grid DataContext="{Binding RPMGaugeNumbers[20]}" Width="79" Height="8" Margin="252,0,0,0" HorizontalAlignment="Left">
@@ -548,7 +554,9 @@
                                 <Grid HorizontalAlignment="Stretch" RenderTransformOrigin="0.0,0.5">
                                     <Grid.RenderTransform><ScaleTransform ScaleX="{Binding XPos}"/></Grid.RenderTransform>
                                     <Rectangle Fill="#FF2DB2FF"/>
-                                    <Rectangle Width="2" HorizontalAlignment="Right" Fill="#FFEAF8FF"/>
+                                    <Rectangle Width="16" HorizontalAlignment="Right" Fill="#2AEAFAFF" Opacity="{Binding Path=DataContext.RPMGaugeNumbers[14].YPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"/>
+                                    <Rectangle Width="8" HorizontalAlignment="Right" Fill="#55EAFAFF" Opacity="{Binding Path=DataContext.RPMGaugeNumbers[14].YPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"/>
+                                    <Rectangle Width="3" HorizontalAlignment="Right" Fill="#FFFFFFFF" Opacity="{Binding Path=DataContext.RPMGaugeNumbers[14].YPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"/>
                                 </Grid>
                             </Grid>
                         </Grid>
@@ -593,7 +601,7 @@
                             <local:FZMaterialPresetRadialBar TargetRatio="1.0"
                                                              ShadowIntensity="0"
                                                              TipGlowFade="0.0"
-                                                             AngleAmount="0.936"
+                                                             AngleAmount="0.785"
                                                              BarWidth="0.051"
                                                              BackgroundColor="#00000000"
                                                              Ratio="1.0"/>
@@ -618,7 +626,7 @@
                             <local:FZMaterialPresetRadialBar TargetRatio="1.0"
                                                              ShadowIntensity="0"
                                                              TipGlowFade="0.0"
-                                                             AngleAmount="0.936"
+                                                             AngleAmount="0.785"
                                                              BarWidth="0.051"
                                                              BackgroundColor="#00000000"
                                                              Ratio="1.0"/>
@@ -643,7 +651,7 @@
                             <local:FZMaterialPresetRadialBar TargetRatio="1.0"
                                                              ShadowIntensity="0"
                                                              TipGlowFade="0.0"
-                                                             AngleAmount="0.936"
+                                                             AngleAmount="0.785"
                                                              BarWidth="0.051"
                                                              BackgroundColor="#00000000"
                                                              Ratio="1.0"/>
@@ -668,7 +676,7 @@
                             <local:FZMaterialPresetRadialBar TargetRatio="1.0"
                                                              ShadowIntensity="0"
                                                              TipGlowFade="0.0"
-                                                             AngleAmount="0.936"
+                                                             AngleAmount="0.785"
                                                              BarWidth="0.051"
                                                              BackgroundColor="#00000000"
                                                              Ratio="1.0"/>
@@ -694,7 +702,7 @@
                             <local:FZMaterialPresetRadialBar TargetRatio="1.0"
                                                              ShadowIntensity="0"
                                                              TipGlowFade="0.0"
-                                                             AngleAmount="0.936"
+                                                             AngleAmount="0.785"
                                                              BarWidth="0.051"
                                                              BackgroundColor="#00000000"
                                                              Ratio="{Binding XPos}"/>
@@ -719,7 +727,7 @@
                             <local:FZMaterialPresetRadialBar TargetRatio="1.0"
                                                              ShadowIntensity="0"
                                                              TipGlowFade="0.0"
-                                                             AngleAmount="0.936"
+                                                             AngleAmount="0.785"
                                                              BarWidth="0.051"
                                                              BackgroundColor="#00000000"
                                                              Ratio="{Binding XPos}"/>
@@ -744,7 +752,7 @@
                             <local:FZMaterialPresetRadialBar TargetRatio="1.0"
                                                              ShadowIntensity="0"
                                                              TipGlowFade="0.0"
-                                                             AngleAmount="0.936"
+                                                             AngleAmount="0.785"
                                                              BarWidth="0.051"
                                                              BackgroundColor="#00000000"
                                                              Ratio="{Binding XPos}"/>
@@ -769,7 +777,7 @@
                             <local:FZMaterialPresetRadialBar TargetRatio="1.0"
                                                              ShadowIntensity="0"
                                                              TipGlowFade="0.0"
-                                                             AngleAmount="0.936"
+                                                             AngleAmount="0.785"
                                                              BarWidth="0.051"
                                                              BackgroundColor="#00000000"
                                                              Ratio="{Binding XPos}"/>

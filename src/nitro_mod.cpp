@@ -2324,6 +2324,11 @@ static void detour_speedo_tick(void* speedo, float rpm) {
             leading_angle = 55.87f + s1 * 20.26f;
         }
         constexpr float kFH3Rot = NITRO_FH3 ? -5.0f : 0.0f;   // the FH3 dial's bar is turned 5 degrees down
+        // FH3: the four segments are drawn 17 degrees wide (gaps between them, like the digital bar), not 20.26
+        constexpr float kSegW = NITRO_FH3 ? 17.0f : 20.26f;
+        leading_angle = leading_angle - (s4 > 0.001f ? 118.57f + s4 * 20.26f : s3 > 0.001f ? 97.67f + s3 * 20.26f : s2 > 0.001f ? 76.77f + s2 * 20.26f : 55.87f + s1 * 20.26f)
+                      + (s4 > 0.001f ? 118.57f + s4 * kSegW : s3 > 0.001f ? 97.67f + s3 * kSegW : s2 > 0.001f ? 76.77f + s2 * kSegW : 55.87f + s1 * kSegW);
+        float dg[4] = {0, 0, 0, 0};   // digital bar: glow of the leading segment while the nitro burns
         leading_angle += kFH3Rot;
 
         // The glow passes are narrow RadialBar tracks (AngleAmount sets the width) centered on the
@@ -2459,6 +2464,7 @@ static void detour_speedo_tick(void* speedo, float rpm) {
                         void* prop_xpos = get_xpos_prop();
                         void* prop_ypos = get_ypos_prop();
 
+                        if (active && total_ratio > 0.005f) dg[s4 > 0.001f ? 3 : s3 > 0.001f ? 2 : s2 > 0.001f ? 1 : 0] = glow_scale;
                         struct SegTarget {
                             int idx;
                             float x;
@@ -2469,9 +2475,16 @@ static void detour_speedo_tick(void* speedo, float rpm) {
                             {19, s3, vig_b < 0.004f ? 0.0f : vig_b}, // Segment 3; Y = opacity of the wider blue glow (vignette layer B)
                             {20, s4, (gauge_visible || !g_hud_hide.load()) ? 1.0f : 0.0f},   // Segment 4 (Top); Y = opacity of the NOS frame (1 = shown)
                             {16, glow_scale, leading_angle}, // Active Glowing Tip Cap (X=Ratio, Y=Angle)
+#if NITRO_FH3
+                            // FH3 (no speed lines in the XAML): the digital bar's glowing tip, one value per segment, only on the leading one
+                            {15, 0.0f, 0.0f},
+                            {14, dg[2], dg[3]},
+                            {13, dg[0], dg[1]}
+#else
                             {15, sl_tier[0], sl_tier[1]},    // speed line tiers 0 and 1: opacity (the stock rev numbers 13 to 15 are removed from the XAML)
                             {14, sl_tier[2], sl_tier[3]},    // tiers 2 and 3
                             {13, sl_tier[4], sl_tier[5]}     // tiers 4 and 5
+#endif
                         };
 
                         for (const auto& t : targets) {
@@ -3321,7 +3334,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.40";
+    info.version          = "2.0.0-fh3.41";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
