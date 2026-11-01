@@ -1717,10 +1717,13 @@ static uint64_t detour_fh3_routine(void* pres, const void* tips, void* r8, void*
 // While nitro burns, post a backfire on the player's car every 40 ms (the routine only spawns on tips whose last
 // flame has finished, so this keeps them burning). Runs on the thread the game posts its own backfires from.
 static void fh3_drive_flames() {
-    if (!g_orig_fh3_post || !g_enabled.load()) return;
+    if (!g_orig_fh3_post || !g_enabled.load() || !g_nitro_active.load()) return;
     if (GetCurrentThreadId() != g_fh3_post_tid.load()) return;
-    fh3_poll_pres();
-    if (!g_nitro_active.load()) return;
+    // runs 360 times a second per car: everything below is paced
+    static uint64_t last = 0;
+    uint64_t now = GetTickCount64();
+    if (now - last < 40) return;
+    last = now;
     void* deferred = g_fh3_player_deferred.load();
     if (!deferred) return;
     alignas(16) uint8_t msg[kFH3TipBytes];
@@ -1728,16 +1731,21 @@ static void fh3_drive_flames() {
     if (g_fh3_tips_ok.load()) {                      // the game has backfired on this car: its message is the truth
         memcpy(msg, g_fh3_player_tips, kFH3TipBytes);
         if (!mask) mask = g_fh3_mask.load();
-    } else {                                         // not yet: the tips the car keeps itself (place learned from an earlier backfire)
-        uint32_t m = 0;
-        if (!fh3_build_locator_tips(msg, &m)) return;
-        if (!mask) mask = m;
+    } else {                                         // not yet: the tips built from the model's exhaust locators (once a second)
+        alignas(16) static uint8_t built[kFH3TipBytes];
+        static uint32_t built_mask = 0;
+        static uint64_t built_tick = 0;
+        static void* built_for = nullptr;
+        if (built_for != g_fh3_pres.load() || now - built_tick > 1000) {
+            built_for = g_fh3_pres.load();
+            built_tick = now;
+            if (!fh3_build_locator_tips(built, &built_mask)) built_mask = 0;
+        }
+        if (!built_mask) return;
+        memcpy(msg, built, kFH3TipBytes);
+        if (!mask) mask = built_mask;
     }
     if (!(mask & 0xFF)) return;
-    static uint64_t last = 0;
-    uint64_t now = GetTickCount64();
-    if (now - last < 40) return;
-    last = now;
     for (int i = 0; i < kFH3TipCount; ++i) msg[i * kFH3TipSize + kFH3TipFlag] = (mask >> i) & 1;
     g_fh3_in_drive.store(true);
     g_orig_fh3_post(deferred, msg);
@@ -2888,7 +2896,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.23";
+    info.version          = "2.0.0-fh3.24";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
