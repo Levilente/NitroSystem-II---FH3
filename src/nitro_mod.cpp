@@ -2017,6 +2017,8 @@ static uint32_t fh3_car_exhaust_tips(char* car, uint8_t* msg) {
 // (db, zSql, nBytes, prepFlags, pOld, ppStmt, pzTail). Logged only, nothing is changed yet.
 typedef int (*FH3PrepareFn)(void*, const char*, int, unsigned, void*, void**, const char**);
 static FH3PrepareFn g_orig_prepare = nullptr;
+static int g_force_stage = 0;   // [FH3] ForceStage (1-3): every car has that stage, the shop is ignored (0 = normal)
+static void fh3_save_last_garage(unsigned g) { wchar_t v[16]; nu_wide_num(v, (long)g); WritePrivateProfileStringW(L"FH3", L"LastGarage", v, g_ini_path); }
 // The Nitrous Kit rows for the game database (FH3 layout: the area link is its own table, no AreaId in UpgradeTypes).
 static void fh3_kit_sql(std::string& out) {
     char b[700];
@@ -2024,13 +2026,13 @@ static void fh3_kit_sql(std::string& out) {
     const char* iconlg = "GAME:\\Media\\UI\\Textures\\Data_Bound\\Upgrade_Parts\\Engine_Power\\engine_power_LG_Icon.swatchbin";
     const char* stock = "GAME:\\Media\\UI\\Textures\\Data_Bound\\Upgrade_Parts\\stock_Icon.swatchbin";
     const char* stocklg = "GAME:\\Media\\UI\\Textures\\Data_Bound\\Upgrade_Parts\\stock_LG_Icon.swatchbin";
-    snprintf(b, sizeof b, "INSERT OR REPLACE INTO UpgradeTypes (id, PartEnum, IsException, DisplayOrder, EverymanUpgradeDisplayOrder, Name, Description, IconPath, ImagePath) VALUES (%d, %d, 0, 15, -1, 'Nitrous Kit', 'Nitrous oxide injection. Hold the nitro button while driving; a higher stage pushes harder.', '%s', '%s');\n", NU_TYPE_ID, NU_ENUM, icon, iconlg);
+    snprintf(b, sizeof b, "INSERT OR REPLACE INTO UpgradeTypes (id, PartEnum, IsException, DisplayOrder, EverymanUpgradeDisplayOrder, Name, Description, IconPath, ImagePath) VALUES (%d, %d, 1, 15, -1, 'Nitrous Kit', 'Nitrous oxide injection. Hold the nitro button while driving; a higher stage pushes harder.', '%s', '%s');\n", NU_TYPE_ID, NU_ENUM, icon, iconlg);
     out += b;
     snprintf(b, sizeof b, "INSERT OR REPLACE INTO UpgradeAreaForUpgradeType (id, UpgradeAreaId, UpgradeTypeId) VALUES (%d, 1, %d);\n", NU_TYPE_ID, NU_TYPE_ID);
     out += b;
     static const char* names[NU_LEVELS] = {"Stock", "Stage 1 Nitrous", "Stage 2 Nitrous", "Stage 3 Nitrous"};
     for (int l = 0; l < NU_LEVELS; ++l) {
-        snprintf(b, sizeof b, "INSERT OR REPLACE INTO Upgrades (id, TypeId, IsException, Name, Level, Description, IconPath, ImagePath) VALUES (%d, '%d', 0, '%s', %d, '%s', '%s', '%s');\n",
+        snprintf(b, sizeof b, "INSERT OR REPLACE INTO Upgrades (id, TypeId, IsException, Name, Level, Description, IconPath, ImagePath) VALUES (%d, '%d', 1, '%s', %d, '%s', '%s', '%s');\n",
                  NU_UPGRADE_BASE + l, NU_TYPE_ID, names[l], l, l ? "Nitrous injection." : "No nitrous system fitted.", l ? icon : stock, l ? iconlg : stocklg);
         out += b;
         snprintf(b, sizeof b, "INSERT OR REPLACE INTO List_UpgradeMotorParts (Id, MotorID, Level, IsStock, ManufacturerID, MassDiff, WeightDistDiff, Price, TorqueScale) VALUES (%ld, %d, %d, %d, 0, 0.0, 0.0, %ld, 1.0);\n",
@@ -2040,25 +2042,28 @@ static void fh3_kit_sql(std::string& out) {
 }
 
 static int detour_prepare(void* db, const char* z, int n, unsigned fl, void* old, void** pp, const char** tail) {
-    // The garage lists the car's upgrade parts through a view built per car: our kit rows join it.
-    if (z && readable_ptr(z, 64) && strncmp(z, "CREATE VIEW", 11) == 0 && strstr(z, "View_UpgradeParts AS SELECT 0 AS PartEnum")) {
+    // The garage's part lists / installs go through nu_rewrite (view rows, installed marker, install = level change).
+    if (z && readable_ptr(z, 64)) {
         const size_t len = n < 0 ? strlen(z) : (size_t)n;
-        std::string out(len + 3000, '\0');
-        NuBuf nb;
-        nu_begin(&nb, &out[0], out.size());
-        long ord = 0;
-        if (nu_view(z, len, &nb, &ord, &nu_cfg)) {
-            out.resize(nb.at);
-            static std::atomic<int> logged{0};
-            if (logged.fetch_add(1) < 3 && g_api && g_mod) { char b[96]; snprintf(b, sizeof b, "kit: the nitrous kit rows joined the upgrade view of car ordinal %ld", ord); g_api->log(g_mod, b); }
-            int r = g_orig_prepare(db, out.c_str(), (int)out.size(), fl, old, pp, tail);
+        if (len > 24 && z[0] == 'U' && strncmp(z, "UPDATE Profile0_Career_Garage SET TopSpeed", 42) == 0) {
+            const char* w = strstr(z, " WHERE Id=");   // the driven car's stats are saved: that is its garage id
+            long gid = w ? atol(w + 10) : 0;
+            if (gid > 0 && (unsigned)gid != nu_active_garage && !g_force_stage) { nu_activate((unsigned)gid); fh3_save_last_garage((unsigned)gid); }
+        }
+        const char* use = nu_rewrite(z, len);
+        if (use != z) {
+            if (z[0] == 'U' || strncmp(z, "SELECT PartTable", 16) == 0) {
+                long gid = 0; const char* g = strstr(z, "GarageId = "); if (!g) { g = strstr(z, "WHERE Id = "); if (g) gid = atol(g + 11); } else gid = atol(g + 11);
+                if (gid > 0 && (unsigned)gid != nu_active_garage && !g_force_stage) { nu_activate((unsigned)gid); fh3_save_last_garage((unsigned)gid); }
+            }
+            int r = g_orig_prepare(db, use, -1, fl, old, pp, tail);
             if (tail) *tail = z + len;
             return r;
         }
     }
     static std::atomic<int> left{400};
     if (z && left.load() > 0 && readable_ptr(z, 16)) {
-        const char* keys[] = {"UpgradeParts", "UpgradeTypes", "UpgradeAreas", "PurchasedParts", "Career_Garage SET", "List_UpgradeMotorParts", "NitroSystemII", "PartEnum = 47", "900470", "900471", "900472", "900473"};
+        const char* keys[] = {"UpgradeParts", "UpgradeTypes", "UpgradeAreas", "PurchasedParts", "Career_Garage SET", "List_UpgradeMotorParts", "NitroSystemII", "PartEnum = 44", "900470", "900471", "900472", "900473"};
         bool hit = false;
         for (const char* k : keys) if (strstr(z, k)) { hit = true; break; }
         if (hit && (strncmp(z, "CREATE INDEX", 12) == 0 || strncmp(z, "CREATE TABLE", 12) == 0 || strstr(z, "WHERE 1=2") ||
@@ -2066,7 +2071,7 @@ static int detour_prepare(void* db, const char* z, int n, unsigned fl, void* old
         if (hit && left.fetch_sub(1) > 0) {
             char b[900];
             size_t len = n < 0 ? strlen(z) : (size_t)n;
-            const bool kitrel = strstr(z, "PartEnum = 47") || strstr(z, "9004") || strstr(z, "PurchasedParts") || strstr(z, "Career_Garage SET");
+            const bool kitrel = strstr(z, "PartEnum = 44") || strstr(z, "9004") || strstr(z, "PurchasedParts") || strstr(z, "Career_Garage SET");
             if (len > (kitrel ? 3400 : 300)) len = kitrel ? 3400 : 300;
             char* big = (char*)malloc(len + 16);
             if (big) { snprintf(big, len + 16, "sql: %.*s", (int)len, z); for (char* c = big; *c; ++c) if (*c == '\n' || *c == '\r' || *c == '\t') *c = ' '; if (g_api && g_mod) g_api->log(g_mod, big); free(big); }
@@ -3377,7 +3382,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.43";
+    info.version          = "2.0.0-fh3.44";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
@@ -3403,11 +3408,14 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     // boosts from [Upgrade] as before.
     nu_load_config(g_ini_path, (int)(g_duration.load() + 0.5f));
     {
-        int stage = (int)GetPrivateProfileIntW(L"FH3", L"Stage", 2, g_ini_path);
-        if (stage < 0 || stage > 3) stage = 2;
-        wchar_t v[4] = {(wchar_t)(L'0' + stage), 0};
-        WritePrivateProfileStringW(L"FH3", L"Stage", v, g_ini_path);
-        nu_cur_level = stage;
+        WritePrivateProfileStringW(L"FH3", L"Stage", nullptr, g_ini_path);
+        int stage = (int)GetPrivateProfileIntW(L"FH3", L"ForceStage", 0, g_ini_path);
+        if (stage < 0 || stage > 3) stage = 0;
+        wchar_t fv[4] = {(wchar_t)(L'0' + stage), 0};
+        WritePrivateProfileStringW(L"FH3", L"ForceStage", fv, g_ini_path);
+        g_force_stage = stage;
+        if (stage) nu_cur_level = stage;
+        else { long lg = (long)GetPrivateProfileIntW(L"FH3", L"LastGarage", 0, g_ini_path); if (lg > 0) nu_activate((unsigned)lg); }
         wchar_t buf[32] = {};
         // [FH3] PowerScale: the extra torque is (boost - 1) x PowerScale, so the default 2 gives +40 / +80 / +120%
         // torque on stages 1 / 2 / 3 (1 would be the bare 1.2 / 1.4 / 1.6x; tested 1 Nov: 1 felt weak). (PushScale was the old, constant-push setting.)
@@ -3428,7 +3436,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
         g_tipsrc_a.store((int)GetPrivateProfileIntW(L"FH3", L"TipSrcA", 0, g_ini_path));
         g_tipsrc_b.store((int)GetPrivateProfileIntW(L"FH3", L"TipSrcB", 0, g_ini_path));
         char msg[96];
-        snprintf(msg, sizeof msg, "FH3 build: every car has Nitrous Kit stage %d ([FH3] Stage in the ini), boost %.1fx", stage, nu_boost(stage));
+        snprintf(msg, sizeof msg, "FH3 build: Nitrous Kit stage %d (ForceStage=%d), boost %.1fx", nu_level(), g_force_stage, nu_boost(nu_level()));
         api->log(g_mod, msg);
     }
 
