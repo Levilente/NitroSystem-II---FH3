@@ -1,5 +1,5 @@
 #ifndef FH3MOD_PLATFORM_VERSION
-#define FH3MOD_PLATFORM_VERSION "2.8.0"
+#define FH3MOD_PLATFORM_VERSION "0.1.0"
 #endif
 #include "fh3mod.h"
 #include "legacy_files.h"
@@ -3510,7 +3510,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.53";
+    info.version          = "2.0.0-fh3.54";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
