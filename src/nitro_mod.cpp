@@ -1366,6 +1366,34 @@ static void fh3_poll_pres() {
     }
 }
 
+
+// Research: who builds the backfire message? Logs the return addresses (game+RVA) on the stack above the post call.
+static void fh3_log_callers(const char* what) {
+    static int budget = 3;
+    if (budget <= 0) return;
+    --budget;
+    const uintptr_t base = (uintptr_t)g_game_base;
+    NT_TIB* tib = (NT_TIB*)NtCurrentTeb();
+    uintptr_t lo = ((uintptr_t)__builtin_frame_address(0) + 7) & ~(uintptr_t)7;
+    uintptr_t hi = (uintptr_t)tib->StackBase;
+    if (hi > lo + 0x1800) hi = lo + 0x1800;
+    char b[1500];
+    int n = snprintf(b, sizeof b, "flames: %s - call chain (return addresses, game+RVA @stack depth):", what);
+    int found = 0;
+    for (uintptr_t p = lo; p + 8 <= hi && found < 24 && n < (int)sizeof b - 40; p += 8) {
+        uintptr_t v = *(uintptr_t*)p;
+        if (v < base + 0x1000 || v >= base + 0x2CF0000) continue;
+        const uint8_t* c = (const uint8_t*)v;
+        if (!readable_ptr(c - 8, 8)) continue;
+        bool call = c[-5] == 0xE8 || (c[-6] == 0xFF && (c[-5] & 0x38) == 0x10) || (c[-7] == 0xFF && (c[-6] & 0x38) == 0x10) ||
+                    (c[-2] == 0xFF && (c[-1] & 0x38) == 0x10) || (c[-3] == 0xFF && (c[-2] & 0x38) == 0x10);
+        if (!call) continue;
+        n += snprintf(b + n, sizeof b - n, " %llX@%llX", (unsigned long long)(v - base), (unsigned long long)(p - lo));
+        ++found;
+    }
+    g_api->log(g_mod, b);
+}
+
 static uint64_t detour_fh3_post(void* deferred, const void* tips) {
     g_fh3_post_calls.fetch_add(1, std::memory_order_relaxed);
     if (!g_fh3_in_drive.load() && tips && readable_ptr(tips, kFH3TipBytes)) {
@@ -1377,6 +1405,7 @@ static uint64_t detour_fh3_post(void* deferred, const void* tips) {
         if (player) {
             g_fh3_post_player.fetch_add(1, std::memory_order_relaxed);
             g_fh3_post_tid.store(GetCurrentThreadId());
+            fh3_log_callers("player's backfire post");
             if (deferred != g_fh3_player_deferred.load()) {
                 g_fh3_player_deferred.store(deferred);
                 g_fh3_mask.store(0);
@@ -2577,7 +2606,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.16";
+    info.version          = "2.0.0-fh3.17";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
