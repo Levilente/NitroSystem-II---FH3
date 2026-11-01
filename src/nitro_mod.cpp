@@ -727,7 +727,8 @@ static ReleaseFn g_orig_release = nullptr;
 static void nitro_tick(void* this_ptr, float dt);
 static std::atomic<bool> g_tipsrc_searched{false};   // FH3 flames: the tip source search has run for this car
 static void* g_game_base = nullptr;
-static std::atomic<void*> g_fh3_player_deferred{nullptr};   // FH3 flames (see the backfire code below)
+static std::atomic<void*> g_fh3_player_deferred{nullptr};
+static std::atomic<bool> g_fh3_car_drive_fwd{false};   // the player's Car update drives the flames (see the Car hook)   // FH3 flames (see the backfire code below)
 static std::atomic<bool> g_fh3_tips_ok{false};
 static std::atomic<void*> g_fh3_pres{nullptr};
 static std::atomic<uint32_t> g_fh3_mask_pres{0};
@@ -1444,6 +1445,7 @@ static void fh3_forget_player_pres() {
 
 static uint64_t detour_fh3_queue(void* a, void* b, void* c, void* d, void* e, void* f, void* g, void* h) {
     g_fh3_queue_calls.fetch_add(1, std::memory_order_relaxed);
+    if (g_fh3_car_drive_fwd.load(std::memory_order_relaxed)) return g_orig_fh3_queue(a, b, c, d, e, f, g, h);
     // Only until the player's presentation is known (then nothing here costs anything). The stack of a car update has the
     // player's car on it for several presentations while the car is moving, so the first hit is not trusted: the same
     // presentation has to be the only one hit on 5 samples in a row (one sample per clock tick, ~15 ms).
@@ -1885,6 +1887,7 @@ static bool fh3_deferred_alive(void* deferred) {
 // While nitro burns, post a backfire on the player's car every 40 ms (the routine only spawns on tips whose last
 // flame has finished, so this keeps them burning). Runs on the thread the game posts its own backfires from.
 static void fh3_drive_flames() {
+    if (g_fh3_car_drive_fwd.load()) return;   // the Car update drives the flames
     if (!g_orig_fh3_post || !g_enabled.load() || !g_nitro_active.load()) return;
     if (GetCurrentThreadId() != g_fh3_post_tid.load()) return;
     // runs 360 times a second per car: everything below is paced
@@ -1957,6 +1960,79 @@ static void fh3_drive_flames() {
     g_fh3_driven.fetch_add(1, std::memory_order_relaxed);
 }
 
+// ---- the game's own exhaust tips (class Car) ---------------------------------------------------------------------
+// The game builds its backfire message in Car's update (vtable game+0x462D160 slot 19, game+0x18B8D20): eight weak
+// pointers to the car's active CarLocators at Car+0x88 (0x10 apart: the object, then its control block with the use
+// count at +8), each matrix from the locator's slot 2 (game+0x1B3E3B0, the locator's matrix at +0xF0); then it posts the
+// message to the deferred presentation at Car+0x73A0. Car+0x71E8 holds the car dynamics' ref-counted interface
+// (CCarDynamics+0x4B0). So the player's Car is the one whose +0x71E8 is the player's dynamics + 0x4B0, and the nitro
+// flames are built from the very locators the game uses - the exhausts of the fitted parts, on any car, after any swap.
+static const uintptr_t kFH3CarObjUpdate = 0x18B8D20;
+static const int kFH3CarExhausts = 0x88, kFH3CarDynIface = 0x71E8, kFH3CarDeferred = 0x73A0;
+typedef uint64_t (*FH3CarObjUpdateFn)(void* car, float dt);
+static FH3CarObjUpdateFn g_orig_fh3_carobj_update = nullptr;
+static std::atomic<void*> g_fh3_player_car{nullptr};
+static std::atomic<bool> g_fh3_car_drive{false};     // the player's Car has been seen: it drives the flames
+static std::atomic<uint32_t> g_fh3_car_updates{0}, g_fh3_car_posts{0};
+
+static uint32_t fh3_car_exhaust_tips(char* car, uint8_t* msg) {
+    memset(msg, 0, kFH3TipBytes);
+    uint32_t mask = 0;
+    const uintptr_t base = (uintptr_t)g_game_base;
+    for (int i = 0; i < kFH3TipCount; ++i) {
+        char* obj = *(char**)(car + kFH3CarExhausts + 0x10 * i);
+        char* ctrl = *(char**)(car + kFH3CarExhausts + 0x10 * i + 8);
+        if (!obj || !ctrl || *(volatile int32_t*)(ctrl + 8) <= 0) continue;
+        void** vt = *(void***)obj;
+        if ((uintptr_t)vt < base || (uintptr_t)vt > base + 0x6000000) continue;
+        typedef const float* (*LocatorMatrixFn)(void*);
+        const float* m = ((LocatorMatrixFn)vt[2])(obj);
+        if (!m || !readable_ptr(m, 0x40)) continue;
+        memcpy(msg + i * kFH3TipSize, m, 0x40);
+        msg[i * kFH3TipSize + kFH3TipFlag] = 1;
+        mask |= 1u << i;
+    }
+    return mask;
+}
+
+static uint64_t detour_fh3_carobj_update(void* self, float dt) {
+    uint64_t r = g_orig_fh3_carobj_update(self, dt);
+    g_fh3_car_updates.fetch_add(1, std::memory_order_relaxed);
+    char* car = (char*)self;
+    char* dyn = (char*)g_player_cardynamics;
+    if (!car || !dyn || *(char**)(car + kFH3CarDynIface) != dyn + 0x4B0) return r;
+    void* deferred = *(void**)(car + kFH3CarDeferred);
+    if (g_fh3_player_car.exchange(car) != car || g_fh3_player_deferred.load() != deferred) {
+        g_fh3_player_deferred.store(deferred);
+        g_fh3_post_tid.store(GetCurrentThreadId());
+        alignas(16) uint8_t msg[kFH3TipBytes];
+        uint32_t m = fh3_car_exhaust_tips(car, msg);
+        char b[200];
+        snprintf(b, sizeof b, "flames: the player's Car %p (dynamics %p), its presentation %p, exhausts %02X", car, dyn, deferred, m);
+        g_api->log(g_mod, b);
+    }
+    g_fh3_car_drive.store(true);
+    g_fh3_car_drive_fwd.store(true);
+    if (!g_orig_fh3_post || !deferred || !g_enabled.load() || !g_nitro_active.load()) return r;
+    static uint64_t last = 0;   // the update runs at the simulation rate: one message every 40 ms keeps the tips burning
+    uint64_t now = GetTickCount64();
+    if (now - last < 40) return r;
+    last = now;
+    alignas(16) uint8_t msg[kFH3TipBytes];
+    uint32_t mask = fh3_car_exhaust_tips(car, msg);
+    uint32_t forced = g_fh3_mask_forced.load();
+    if (forced) {
+        for (int i = 0; i < kFH3TipCount; ++i) if (!(forced >> i & 1)) msg[i * kFH3TipSize + kFH3TipFlag] = 0;
+        mask &= forced;
+    }
+    if (!mask) return r;
+    g_fh3_in_drive.store(true);
+    g_orig_fh3_post(deferred, msg);
+    g_fh3_in_drive.store(false);
+    g_fh3_car_posts.fetch_add(1, std::memory_order_relaxed);
+    return r;
+}
+
 static void install_fh3_flames(char* base) {
     FH3Hook* h1 = g_api->hook_function(g_mod, "CCarPresentationDeferred backfire", base + kFH3BackfirePost,
                                        (void*)detour_fh3_post, (void**)&g_orig_fh3_post);
@@ -1970,6 +2046,10 @@ static void install_fh3_flames(char* base) {
     }
     bool ok1 = h1 && g_api->enable_hooks(g_mod, h1), ok2 = h2 && g_api->enable_hooks(g_mod, h2);
     if (!ok1) g_orig_fh3_post = nullptr;
+    FH3Hook* h4 = g_api->hook_function(g_mod, "Car update (the game's exhaust tips)", base + kFH3CarObjUpdate,
+                                       (void*)detour_fh3_carobj_update, (void**)&g_orig_fh3_carobj_update);
+    if (!(h4 && g_api->enable_hooks(g_mod, h4)))
+        g_api->log(g_mod, "Could not hook the Car update: flames fall back to the exhaust locators found by searching.");
     g_api->log(g_mod, ok1 && ok2 ? "Backfire hooked (nitro exhaust flames)." : "Could not hook the backfire: no nitro flames.");
 }
 
@@ -3128,7 +3208,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.33";
+    info.version          = "2.0.0-fh3.34";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
