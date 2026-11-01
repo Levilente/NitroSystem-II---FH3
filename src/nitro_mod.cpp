@@ -2287,13 +2287,15 @@ static void detour_speedo_tick(void* speedo, float rpm) {
         } else {
             leading_angle = 55.87f + s1 * 20.26f;
         }
+        constexpr float kFH3Rot = NITRO_FH3 ? -5.0f : 0.0f;   // the FH3 dial's bar is turned 5 degrees down
+        leading_angle += kFH3Rot;
 
         // The glow passes are narrow RadialBar tracks (AngleAmount sets the width) centered on the
         // rotation angle, so Ratio 1.0 fills the whole track and YPos is the leading edge. The
         // XAML offsets slide each pass back so it ends on the edge.
         // The widest pass trails kGlowTrail degrees behind the edge. Near empty, park the glow where
         // its tail meets the bar start and shrink Ratio so it fades out instead of overhanging.
-        const float kBarStart = 55.87f;
+        const float kBarStart = 55.87f + kFH3Rot;
         const float kGlowTrail = 12.0f;
         if (active && total_ratio > 0.005f) {
             float room = leading_angle - kBarStart;
@@ -3278,7 +3280,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.37";
+    info.version          = "2.0.0-fh3.38";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
