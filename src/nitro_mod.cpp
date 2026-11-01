@@ -723,6 +723,9 @@ static const int kFH3ReleaseSlot = 3;
 typedef uint64_t (*ReleaseFn)(void* self);
 static ReleaseFn g_orig_release = nullptr;
 static void nitro_tick(void* this_ptr, float dt);
+static std::atomic<void*> g_fh3_player_deferred{nullptr};   // FH3 flames (see the backfire code below)
+static std::atomic<bool> g_fh3_tips_ok{false};
+static std::atomic<uint32_t> g_fh3_mask{0};                 // exhaust tips the game flagged for the player's car
 static void update_torque(char* car);
 
 static uint64_t detour_release(void* self) {
@@ -836,7 +839,12 @@ static void nitro_tick(void* this_ptr, float dt) {
 
         bool mine = is_player_car(this_ptr, now);
         if (mine) {
-            if (g_player_cardynamics != this_ptr) nu_mark_dirty();
+            if (g_player_cardynamics != this_ptr) {
+                nu_mark_dirty();
+                g_fh3_player_deferred.store(nullptr);   // a different car: its presentation and exhaust tips are learned again
+                g_fh3_mask.store(0);
+                g_fh3_tips_ok.store(false);
+            }
             g_player_cardynamics = this_ptr;
             float d2;
             if (car_dist2(this_ptr, kFH3CarPos, &d2)) g_diag_player_dist.store(sqrtf(d2));
@@ -1130,10 +1138,7 @@ static FH3BfRoutineFn g_orig_fh3_routine = nullptr;
 static std::atomic<DWORD> g_fh3_post_tid{0}, g_fh3_routine_tid{0};
 static std::atomic<uint32_t> g_fh3_post_calls{0}, g_fh3_post_flagged{0}, g_fh3_post_player{0};
 static std::atomic<uint32_t> g_fh3_routine_calls{0}, g_fh3_routine_flagged{0}, g_fh3_driven{0};
-static std::atomic<void*> g_fh3_player_deferred{nullptr};
 alignas(16) static uint8_t g_fh3_player_tips[kFH3TipBytes];
-static std::atomic<bool> g_fh3_tips_ok{false};
-static std::atomic<uint32_t> g_fh3_mask{0};          // tips the game flagged for the player's car
 static std::atomic<uint32_t> g_fh3_mask_forced{0};   // [FH3] FlameTips
 static std::atomic<int> g_fh3_deferred_off{-1};      // where the car object keeps its deferred presentation
 static std::atomic<bool> g_fh3_in_drive{false};
@@ -1198,6 +1203,12 @@ static uint64_t detour_fh3_post(void* deferred, const void* tips) {
         uint32_t mask = fh3_tip_mask(t);
         if (mask) g_fh3_post_flagged.fetch_add(1, std::memory_order_relaxed);
         bool player = fh3_is_player_deferred(deferred) || (t_fh3_car && t_fh3_car == g_player_cardynamics);
+        // The backfire isn't posted from inside the car's tick, and the car object doesn't point at its presentation
+        // (tested 1 Nov: no match in the first 16 KB). Until a presentation is known for this car, the first one that
+        // backfires while the player's car is simulated is taken as its (traffic doesn't backfire; changing car resets).
+        if (!player && !g_fh3_player_deferred.load() && g_player_cardynamics &&
+            GetTickCount64() - g_player_pos_tick.load() < 500)
+            player = true;
         if (player) {
             g_fh3_post_player.fetch_add(1, std::memory_order_relaxed);
             if (deferred != g_fh3_player_deferred.load()) {
@@ -2384,7 +2395,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.12";
+    info.version          = "2.0.0-fh3.13";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
