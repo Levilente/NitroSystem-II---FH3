@@ -1195,6 +1195,56 @@ static bool fh3_is_player_deferred(void* deferred) {
     return false;
 }
 
+
+// The backfire is posted on the physics thread, from somewhere inside a car's update, so the car object it belongs to is
+// still on the stack further up the call chain. A pointer into the player's CCarDynamics there means this backfire is
+// the player's car's. (Only the live frames above this one are read, never stale data below.)
+static bool fh3_player_on_stack(void* deferred) {
+    char* car = (char*)g_player_cardynamics;
+    if (!car) return false;
+    NT_TIB* tib = (NT_TIB*)NtCurrentTeb();
+    uintptr_t lo = ((uintptr_t)__builtin_frame_address(0) + 7) & ~(uintptr_t)7;
+    uintptr_t hi = (uintptr_t)tib->StackBase;
+    if (hi > lo + 0x20000) hi = lo + 0x20000;
+    static int s_nomatch_logs = 3;
+    for (uintptr_t p = lo; p + 8 <= hi; p += 8) {
+        uintptr_t v = *(uintptr_t*)p;
+        if (v >= (uintptr_t)car && v < (uintptr_t)car + 0x3000) {
+            static bool s_logged = false;
+            if (!s_logged) {
+                char b[200];
+                snprintf(b, sizeof b, "flames: the player's car %p is on the stack of the backfire post (%p) at depth +0x%llX, pointer +0x%llX into it",
+                         (void*)car, deferred, (unsigned long long)(p - lo), (unsigned long long)(v - (uintptr_t)car));
+                g_api->log(g_mod, b);
+                s_logged = true;
+            }
+            return true;
+        }
+    }
+    if (s_nomatch_logs > 0) {
+        --s_nomatch_logs;
+        // not the player's car (or the car isn't on the stack in this form): list the live objects up the stack that
+        // hold a position near the player, for the next round of research
+        char b[1200];
+        int n = snprintf(b, sizeof b, "flames: no player car on the stack of the post for %p; objects up the stack near the player position:", deferred);
+        int found = 0;
+        for (uintptr_t p = lo; p + 8 <= hi && found < 8 && n < (int)sizeof b - 80; p += 8) {
+            uintptr_t v = *(uintptr_t*)p;
+            if (v < 0x10000 || !readable_ptr((void*)v, 0x400)) continue;
+            for (int o = 0; o < 0x400 - 12; o += 4) {
+                float d2;
+                if (car_dist2((void*)v, o, &d2) && d2 < 30.0f * 30.0f && d2 > 0.0001f) {
+                    n += snprintf(b + n, sizeof b - n, " [depth +0x%llX obj %p pos at +0x%X %.1f m]", (unsigned long long)(p - lo), (void*)v, o, sqrtf(d2));
+                    ++found;
+                    break;
+                }
+            }
+        }
+        g_api->log(g_mod, b);
+    }
+    return false;
+}
+
 static uint64_t detour_fh3_post(void* deferred, const void* tips) {
     g_fh3_post_tid.store(GetCurrentThreadId());
     g_fh3_post_calls.fetch_add(1, std::memory_order_relaxed);
@@ -1203,12 +1253,7 @@ static uint64_t detour_fh3_post(void* deferred, const void* tips) {
         uint32_t mask = fh3_tip_mask(t);
         if (mask) g_fh3_post_flagged.fetch_add(1, std::memory_order_relaxed);
         bool player = fh3_is_player_deferred(deferred) || (t_fh3_car && t_fh3_car == g_player_cardynamics);
-        // The backfire isn't posted from inside the car's tick, and the car object doesn't point at its presentation
-        // (tested 1 Nov: no match in the first 16 KB). Until a presentation is known for this car, the first one that
-        // backfires while the player's car is simulated is taken as its (traffic doesn't backfire; changing car resets).
-        if (!player && !g_fh3_player_deferred.load() && g_player_cardynamics &&
-            GetTickCount64() - g_player_pos_tick.load() < 500)
-            player = true;
+        if (!player && g_player_cardynamics && fh3_player_on_stack(deferred)) player = true;
         if (player) {
             g_fh3_post_player.fetch_add(1, std::memory_order_relaxed);
             if (deferred != g_fh3_player_deferred.load()) {
@@ -2395,7 +2440,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.13";
+    info.version          = "2.0.0-fh3.14";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
