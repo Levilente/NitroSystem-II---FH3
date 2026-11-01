@@ -2035,9 +2035,7 @@ static void fh3_kit_sql(std::string& out) {
         snprintf(b, sizeof b, "INSERT OR REPLACE INTO Upgrades (id, TypeId, IsException, Name, Level, Description, IconPath, ImagePath) VALUES (%d, '%d', 0, '%s', %d, '%s', '%s', '%s');\n",
                  NU_UPGRADE_BASE + l, NU_TYPE_ID, names[l], l, l ? "Nitrous injection." : "No nitrous system fitted.", l ? icon : stock, l ? iconlg : stocklg);
         out += b;
-        snprintf(b, sizeof b, "INSERT OR REPLACE INTO List_UpgradeEngineTurboQuad (Id, EngineID, Level, IsStock, ManufacturerID, Price, MomentInertia, MaxScale, PowerMaxScale, MinScale, PowerMinScale, RobScale, TorqueDropOffRPM0, TorqueDropOffRPM1, TorqueDropOffScale0, TorqueDropOffScale1) VALUES (%ld, %d, %d, %d, -1, %ld, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 9000.0, 15000.0, 1.0, 0.75);\n",
-                 (long)(NU_ID_BASE + l), NU_MOTOR_ID, l, l == 0, l ? nu_cfg.price[l] : 0L);
-        out += b;
+        
     }
 }
 
@@ -2079,7 +2077,26 @@ static bool fh3_rewrite_kit(const char* z, size_t len, std::string& out) {
     return false;
 }
 
+
+// A save that still holds one of our ids in the QuadTurbo slot crashes the game on load (no real part behind it):
+// before the first statement that touches the garage table, clean those rows through the game's own sqlite3_exec.
+typedef int (*FH3ExecFn)(void*, const char*, void*, void*, char**);
+static std::atomic<int> g_repair_tries{0};
+static std::atomic<bool> g_repaired{false};
+static thread_local bool t_in_repair = false;
+static void fh3_repair_save(void* db, const char* z) {
+    if (g_repaired.load() || t_in_repair || !z || !g_game_base || !strstr(z, "Profile0_Career_Garage")) return;
+    if (g_repair_tries.fetch_add(1) >= 6) return;
+    t_in_repair = true;
+    FH3ExecFn ex = (FH3ExecFn)((uintptr_t)g_game_base + 0x421D0);
+    int r = ex(db, "UPDATE Profile0_Career_Garage SET QuadTurbo=-1, AspirationTypeId=1 WHERE QuadTurbo BETWEEN 900470 AND 900473", nullptr, nullptr, nullptr);
+    t_in_repair = false;
+    if (g_api && g_mod) { char b[96]; snprintf(b, sizeof b, "kit: save clean-up returned %d", r); g_api->log(g_mod, b); }
+    if (r == 0) g_repaired.store(true);
+}
+
 static int detour_prepare(void* db, const char* z, int n, unsigned fl, void* old, void** pp, const char** tail) {
+    if (!t_in_repair && !g_repaired.load()) fh3_repair_save(db, z);
     // The garage's part lists / installs go through nu_rewrite (view rows, installed marker, install = level change).
     if (z && readable_ptr(z, 64)) {
         const size_t len = n < 0 ? strlen(z) : (size_t)n;
@@ -3421,7 +3438,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.46";
+    info.version          = "2.0.0-fh3.47";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
