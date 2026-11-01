@@ -1428,7 +1428,8 @@ static bool fh3_scan_for(const uint8_t* start, size_t len, const uint8_t* msg, i
     return false;
 }
 
-static void fh3_dump_locators();
+static bool fh3_build_locator_tips(uint8_t* out, uint32_t* mask_out);
+static void fh3_compare_locator_tips(const uint8_t* msg);
 static void fh3_find_tip_source(const uint8_t* msg) {
     char* car = (char*)g_player_cardynamics;
     if (!car || g_tipsrc_searched.exchange(true)) return;
@@ -1458,11 +1459,7 @@ static void fh3_find_tip_source(const uint8_t* msg) {
     }
     if (!hit) {
         g_api->log(g_mod, "tip source: not found in the car object or one pointer level behind it (the tips are built on the fly)");
-        static bool dumped = false;
-        if (!dumped) {
-            dumped = true;
-            fh3_dump_locators();
-        }
+        fh3_compare_locator_tips(msg);
         return;
     }
     wchar_t w[16];
@@ -1611,6 +1608,74 @@ static void fh3_dump_locators() {
     }
 }
 
+
+// ---- exhaust tips from the model's locators, before any backfire ------------------------------------------------------
+// presentation+0x7B0 holds a table (from +0x2B0, 0x18 bytes per entry, the block pointer last) of the car's locators; each
+// block (0x1C0 bytes) has the locator's name ("carLocator_Exhaust_NNN") and its 4x4 matrix at +0x70. The game's backfire
+// message uses tip N-1 for locator NNN. A car without a locator gets a shared fallback position (five blocks at the same
+// place on the Urus), so only locators with a position of their own count. (Layout read from the 1 Nov logs.)
+static bool fh3_build_locator_tips(uint8_t* out, uint32_t* mask_out) {
+    memset(out, 0, kFH3TipBytes);
+    *mask_out = 0;
+    char* pres = (char*)g_fh3_pres.load();
+    if (!pres || !readable_ptr(pres + 0x7B0, 8)) return false;
+    uintptr_t M = *(uintptr_t*)(pres + 0x7B0);
+    if (M < 0x10000 || !readable_ptr((void*)M, 0x700)) return false;
+    struct E { int num; const uint8_t* mat; };
+    E e[32];
+    int n = 0;
+    for (int k = 0; k < 24 && n < 32; ++k) {
+        uintptr_t q = *(uintptr_t*)(M + 0x2B0 + 0x18 * k);
+        if (q < 0x10000 || !readable_ptr((void*)q, 0x1C0)) continue;
+        const uint8_t* bl = (const uint8_t*)q;
+        const char* name = nullptr;
+        for (int o = 0; o + 24 <= 0x1C0 && !name; o += 4)
+            if (memcmp(bl + o, "carLocator_Exhaust_", 19) == 0) name = (const char*)bl + o;
+        for (int o = 0; o + 8 <= 0x1C0 && !name; o += 8) {
+            uintptr_t v = *(const uintptr_t*)(bl + o);
+            if (v > 0x10000 && v < 0x7FFFFFFFFFFFull && readable_ptr((void*)v, 24) && memcmp((void*)v, "carLocator_Exhaust_", 19) == 0)
+                name = (const char*)v;
+        }
+        if (!name || name[19] < '0' || name[19] > '9' || name[20] < '0' || name[20] > '9' || name[21] < '0' || name[21] > '9') continue;
+        int num = (name[19] - '0') * 100 + (name[20] - '0') * 10 + (name[21] - '0');
+        if (num < 1 || num > kFH3TipCount) continue;
+        e[n++] = {num, bl + 0x70};
+    }
+    for (int i = 0; i < n; ++i) {
+        const float* a = (const float*)e[i].mat;
+        int same = 0;
+        for (int j = 0; j < n; ++j) {
+            const float* b2 = (const float*)e[j].mat;
+            if (fabsf(a[12] - b2[12]) < 1e-4f && fabsf(a[13] - b2[13]) < 1e-4f && fabsf(a[14] - b2[14]) < 1e-4f) ++same;
+        }
+        if (same != 1 || !fh3_tip_valid(e[i].mat)) continue;
+        int idx = e[i].num - 1;
+        memcpy(out + idx * kFH3TipSize, e[i].mat, 0x40);
+        out[idx * kFH3TipSize + kFH3TipFlag] = 1;
+        *mask_out |= 1u << idx;
+    }
+    return *mask_out != 0;
+}
+
+// At the game's first real backfire: how close is what the locators give to the game's own message? (log, once per car)
+static void fh3_compare_locator_tips(const uint8_t* msg) {
+    alignas(16) uint8_t mine[kFH3TipBytes];
+    uint32_t m = 0;
+    bool ok = fh3_build_locator_tips(mine, &m);
+    uint32_t real = fh3_tip_mask(msg);
+    float worst = 0.0f;
+    for (int i = 0; i < kFH3TipCount; ++i) {
+        if (!((m & real) >> i & 1)) continue;
+        const float* a = (const float*)(msg + i * kFH3TipSize);
+        const float* b2 = (const float*)(mine + i * kFH3TipSize);
+        for (int c = 0; c < 16; ++c) worst = fmaxf(worst, fabsf(a[c] - b2[c]));
+    }
+    char b[240];
+    snprintf(b, sizeof b, "locator tips: %s, built mask %02X vs the game's %02X, largest difference in the shared tips %.5f -> %s",
+             ok ? "built" : "could not build", m, real, worst, (ok && m == real && worst < 1e-3f) ? "MATCH" : "differs");
+    g_api->log(g_mod, b);
+}
+
 static uint64_t detour_fh3_post(void* deferred, const void* tips) {
     g_fh3_post_calls.fetch_add(1, std::memory_order_relaxed);
     if (!g_fh3_in_drive.load() && tips && readable_ptr(tips, kFH3TipBytes)) {
@@ -1664,10 +1729,9 @@ static void fh3_drive_flames() {
         memcpy(msg, g_fh3_player_tips, kFH3TipBytes);
         if (!mask) mask = g_fh3_mask.load();
     } else {                                         // not yet: the tips the car keeps itself (place learned from an earlier backfire)
-        const uint8_t* src = fh3_tip_source_ptr();
-        if (!src) return;
-        memcpy(msg, src, kFH3TipBytes);
-        if (!mask) mask = fh3_pres_mask_of(msg);
+        uint32_t m = 0;
+        if (!fh3_build_locator_tips(msg, &m)) return;
+        if (!mask) mask = m;
     }
     if (!(mask & 0xFF)) return;
     static uint64_t last = 0;
@@ -2824,7 +2888,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.22";
+    info.version          = "2.0.0-fh3.23";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
