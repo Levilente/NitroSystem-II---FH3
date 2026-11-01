@@ -740,6 +740,10 @@ static bool install_release_hook(char* base) {
 // FH3: the per-tick update takes the time step as its third argument (xmm2); the others are passed through.
 typedef uint64_t (*FH3CarUpdateFn)(void* this_ptr, void* rdx, float dt, void* r9);
 static FH3CarUpdateFn g_orig_car_update = nullptr;
+// FH3: the same push was about six times as strong as in FH2 (2 s of nitro to 300 mph), so it's scaled down
+// ([FH3] PushScale), and the real effect is measured (speed from the car's movement, before and during nitro).
+static std::atomic<float> g_push_scale{0.17f};
+static std::atomic<float> g_meas_accel_boost{0.0f}, g_meas_accel_plain{0.0f}, g_meas_speed{0.0f};
 static std::atomic<int> g_cars_seen{0};
 static std::atomic<float> g_last_dt{0.0f};
 static std::atomic<float> g_diag_player_dist{-1.0f};
@@ -771,6 +775,33 @@ static void nitro_tick(void* this_ptr, float dt) {
 
         bool grounded = true;
         if (mine) {
+            // measured speed (from the position) and its change, averaged separately with and without nitro
+            static float last_pos[3];
+            static uint64_t last_qpc = 0;
+            static float last_speed = -1.0f;
+            LARGE_INTEGER q, f;
+            QueryPerformanceCounter(&q);
+            QueryPerformanceFrequency(&f);
+            const float* pos = (const float*)((uintptr_t)this_ptr + kFH3CarPos);
+            if (last_qpc) {
+                float span = (float)(q.QuadPart - last_qpc) / (float)f.QuadPart;
+                if (span >= 0.1f) {
+                    float dx = pos[0] - last_pos[0], dy = pos[1] - last_pos[1], dz = pos[2] - last_pos[2];
+                    float sp = sqrtf(dx * dx + dy * dy + dz * dz) / span;
+                    if (last_speed >= 0.0f && span < 0.5f) {
+                        float acc = (sp - last_speed) / span;
+                        auto& slot = g_nitro_active.load() ? g_meas_accel_boost : g_meas_accel_plain;
+                        slot.store(slot.load() * 0.7f + acc * 0.3f);
+                    }
+                    g_meas_speed.store(sp);
+                    last_speed = sp;
+                    last_qpc = q.QuadPart;
+                    last_pos[0] = pos[0]; last_pos[1] = pos[1]; last_pos[2] = pos[2];
+                }
+            } else {
+                last_qpc = q.QuadPart;
+                last_pos[0] = pos[0]; last_pos[1] = pos[1]; last_pos[2] = pos[2];
+            }
             g_player_speed.store(sqrtf(vel[0] * vel[0] + vel[1] * vel[1] + vel[2] * vel[2]));
             learn_up_axis(this_ptr, now);
             grounded = update_grounded(this_ptr, vel, dt, now);
@@ -790,7 +821,7 @@ static void nitro_tick(void* this_ptr, float dt) {
                 }
                 if (apply) {
                     float dt_use = (dt > 0.001f && dt < 0.1f) ? dt : 0.01667f;
-                    float impulse = (boost - 1.0f) * 22.0f * dt_use;
+                    float impulse = (boost - 1.0f) * 22.0f * dt_use * g_push_scale.load();
                     vel[0] += dir[0] * impulse;
                     vel[1] += dir[1] * impulse;
                     vel[2] += dir[2] * impulse;
@@ -1756,9 +1787,9 @@ static void nitro_worker_thread() {
     // FH3 research: what the hooks see, every 5 seconds for the first minutes (the offsets come from reading the
     // code, not from a running game).
     std::thread([] {
-        for (int i = 0; i < 60; ++i) {
-            Sleep(5000);
-            char b[320];
+        for (int i = 0; i < 300; ++i) {
+            Sleep(2000);
+            char b[480];
             static uint64_t last_frames = 0;
             const uint64_t frames = g_physics_frames.load();
             int cars = 0;
@@ -1766,11 +1797,12 @@ static void nitro_worker_thread() {
             for (const auto& c : g_seen)
                 if (c.ptr && now - c.tick < 1000) ++cars;
             snprintf(b, sizeof b,
-                     "FH3 check: %llu car updates in 5 s (dt %.4f), %d cars, player pos %s (%.0f, %.0f, %.0f), player car %p at %.1f m from it, "
-                     "speed %.1f m/s (game's own %.1f), up axis %d, boosted ticks %llu",
+                     "FH3 check: %llu car updates in 2 s (dt %.4f), %d cars, player pos %s (%.0f, %.0f, %.0f), player car %p at %.1f m from it, "
+                     "speed %.1f m/s (game's own %.1f, measured %.1f), accel %.1f m/s2 plain / %.1f with nitro (push scale %.2f), up axis %d, boosted ticks %llu",
                      (unsigned long long)(frames - last_frames), g_last_dt.load(), cars,
                      now - g_player_pos_tick.load() < 1000 ? "seen" : "not seen", g_player_pos[0], g_player_pos[1], g_player_pos[2],
-                     g_player_cardynamics, g_diag_player_dist.load(), g_player_speed.load(), g_diag_speed_field.load(), g_up_axis.load(),
+                     g_player_cardynamics, g_diag_player_dist.load(), g_player_speed.load(), g_diag_speed_field.load(), g_meas_speed.load(),
+                     g_meas_accel_plain.load(), g_meas_accel_boost.load(), g_push_scale.load(), g_up_axis.load(),
                      (unsigned long long)g_boosted_frames.load());
             last_frames = frames;
             g_api->log(g_mod, b);
@@ -2118,7 +2150,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.6";
+    info.version          = "2.0.0-fh3.7";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
@@ -2143,6 +2175,12 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
         wchar_t v[4] = {(wchar_t)(L'0' + stage), 0};
         WritePrivateProfileStringW(L"FH3", L"Stage", v, g_ini_path);
         nu_cur_level = stage;
+        wchar_t buf[32] = {};
+        GetPrivateProfileStringW(L"FH3", L"PushScale", L"", buf, 32, g_ini_path);
+        float scale = buf[0] ? (float)_wtof(buf) : 0.17f;
+        if (!(scale > 0.0f && scale <= 2.0f)) scale = 0.17f;
+        if (!buf[0]) WritePrivateProfileStringW(L"FH3", L"PushScale", L"0.17", g_ini_path);
+        g_push_scale.store(scale);
         char msg[96];
         snprintf(msg, sizeof msg, "FH3 build: every car has Nitrous Kit stage %d ([FH3] Stage in the ini), boost %.1fx", stage, nu_boost(stage));
         api->log(g_mod, msg);
