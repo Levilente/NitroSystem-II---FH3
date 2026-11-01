@@ -1334,68 +1334,98 @@ static void fh3_find_pres(void* deferred) {
 
 
 // ---- the presentation -> car link ----------------------------------------------------------------------------------
-// The CarPresentation keeps a pointer to its car (the car itself or its ref-counted interface at +0x4B0). Learned once
-// from a presentation known to be the player's (the first car while standing still, or the game's own backfire), it
-// then names the player's presentation exactly, after a car swap too, without looking at stacks.
-static std::atomic<int> g_fh3_link_off{-1};    // offset in the CarPresentation
-static std::atomic<int> g_fh3_link_off2{-1};   // offset behind that pointer (-1: the pointer itself is the car's)
-static std::atomic<int> g_fh3_link_delta{0};   // the value found is car + delta
+// The CarPresentation doesn't point at the car (checked on 1 Nov: no pointer to CCarDynamics or its +0x4B0 interface,
+// directly or one pointer further). It does keep where the car is drawn: the offset of that position is learned once
+// from a presentation known to be the player's (the first car while standing still, or the game's own backfire), and
+// after that the player's presentation is the one drawn where the player's car is - after a car swap too.
+static std::atomic<int> g_fh3_link_off{-1};    // offset of the drawn position (3 floats) in the CarPresentation
+static std::atomic<int> g_fh3_link_off2{-1};   // offset behind the pointer at link_off (-1: the floats are in the presentation)
 
-static bool fh3_link_matches(const char* pres, const char* car) {
-    int off = g_fh3_link_off.load(), off2 = g_fh3_link_off2.load();
-    if (off < 0 || !pres || !car || !readable_ptr(pres + off, 8)) return false;
-    uintptr_t v = *(const uintptr_t*)(pres + off);
+static bool fh3_player_pos(float out[3]) {
+    const char* car = (const char*)g_player_cardynamics;
+    if (!car || !readable_ptr(car + kFH3CarPos, 12)) return false;
+    memcpy(out, car + kFH3CarPos, 12);
+    return std::isfinite(out[0]) && std::isfinite(out[1]) && std::isfinite(out[2]);
+}
+
+static bool fh3_pres_pos(const char* pres, int off, int off2, float out[3]) {
+    if (off < 0 || !pres) return false;
+    const char* p = pres + off;
     if (off2 >= 0) {
-        if (v < 0x10000 || v > 0x7FFFFFFF0000ull || !readable_ptr((void*)(v + off2), 8)) return false;
-        v = *(const uintptr_t*)(v + off2);
+        if (!readable_ptr(p, 8)) return false;
+        uintptr_t v = *(const uintptr_t*)p;
+        if (v < 0x10000 || v > 0x7FFFFFFF0000ull) return false;
+        p = (const char*)v + off2;
     }
-    return v == (uintptr_t)car + g_fh3_link_delta.load();
+    if (!readable_ptr(p, 12)) return false;
+    memcpy(out, p, 12);
+    return std::isfinite(out[0]) && std::isfinite(out[1]) && std::isfinite(out[2]);
+}
+
+static float fh3_dist2(const float a[3], const float b[3]) {
+    float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+    return dx * dx + dy * dy + dz * dz;
+}
+
+// Is this CarPresentation drawn where the player's car is (within 3 m: the drawing can be a frame behind)?
+static bool fh3_link_matches(const char* pres, const char* /*car*/) {
+    float pp[3], cp[3];
+    if (!fh3_player_pos(pp) || !fh3_pres_pos(pres, g_fh3_link_off.load(), g_fh3_link_off2.load(), cp)) return false;
+    return fh3_dist2(pp, cp) < 9.0f;
 }
 
 static void fh3_learn_link(const char* pres, const char* car, const char* why) {
     static int logs = 0;
     if (!pres || !car) return;
-    if (g_fh3_link_off.load() >= 0) {   // known: check it (a different car proves it again)
+    float pp[3];
+    if (!fh3_player_pos(pp)) return;
+    if (g_fh3_link_off.load() >= 0) {   // known: check it, learn it again from this presentation if it doesn't hold
+        bool ok = fh3_link_matches(pres, car);
         if (logs < 12) {
             ++logs;
             char b[200];
-            snprintf(b, sizeof b, "link (%s): presentation %p -> car %p: %s", why, pres, car, fh3_link_matches(pres, car) ? "confirmed" : "DOES NOT MATCH");
+            snprintf(b, sizeof b, "link (%s): presentation %p at the player's car: %s", why, pres, ok ? "confirmed" : "DOES NOT MATCH, learning again");
             g_api->log(g_mod, b);
         }
-        return;
+        if (ok) return;
+        g_fh3_link_off.store(-1);
     }
     int span = readable_ptr(pres, 0x2000) ? 0x2000 : readable_ptr(pres, 0x1000) ? 0x1000 : readable_ptr(pres, 0x800) ? 0x800 : 0;
     char b[1200];
-    int n = snprintf(b, sizeof b, "link (%s): presentation %p, car %p, %X bytes:", why, pres, car, span);
-    int off = -1, off2 = -1, delta = 0;
-    const uintptr_t c = (uintptr_t)car;
-    for (int o = 0; o < span; o += 8) {
-        uintptr_t v = *(const uintptr_t*)(pres + o);
-        if (v >= c && v < c + 0x3000) {
-            int d = (int)(v - c);
-            if (n < (int)sizeof b - 40) n += snprintf(b + n, sizeof b - n, " [+0x%X = car+0x%X]", o, d);
-            if (off < 0 && (d == 0 || d == 0x4B0)) { off = o; delta = d; }
+    int n = snprintf(b, sizeof b, "link (%s): presentation %p, car at %.2f,%.2f,%.2f:", why, pres, pp[0], pp[1], pp[2]);
+    int best = -1, best2 = -1, hits = 0;
+    float bestd = 4.0f;   // 2 m
+    for (int o = 0; o + 12 <= span; o += 4) {
+        float cp[3];
+        memcpy(cp, pres + o, 12);
+        if (!std::isfinite(cp[0]) || !std::isfinite(cp[1]) || !std::isfinite(cp[2])) continue;
+        float d = fh3_dist2(pp, cp);
+        if (d < 4.0f) {
+            ++hits;
+            if (n < (int)sizeof b - 40) n += snprintf(b + n, sizeof b - n, " [+0x%X %.2fm]", o, sqrtf(d));
+            if (d < bestd) { bestd = d; best = o; best2 = -1; }
         }
     }
-    if (off < 0) {   // one pointer further
-        for (int o = 0; o < (span < 0x800 ? span : 0x800) && off < 0; o += 8) {
+    if (best < 0) {   // one pointer further
+        for (int o = 0; o < (span < 0x800 ? span : 0x800); o += 8) {
             uintptr_t v = *(const uintptr_t*)(pres + o);
             if (v < 0x10000 || v > 0x7FFFFFFF0000ull || (v & 7) || !readable_ptr((void*)v, 0x400)) continue;
-            for (int o2 = 0; o2 < 0x400; o2 += 8) {
-                uintptr_t w = *(const uintptr_t*)(v + o2);
-                if (w == c || w == c + 0x4B0) {
-                    off = o; off2 = o2; delta = (int)(w - c);
-                    if (n < (int)sizeof b - 50) n += snprintf(b + n, sizeof b - n, " [+0x%X -> +0x%X = car+0x%X]", o, o2, delta);
-                    break;
+            for (int o2 = 0; o2 + 12 <= 0x400; o2 += 4) {
+                float cp[3];
+                memcpy(cp, (const char*)v + o2, 12);
+                if (!std::isfinite(cp[0]) || !std::isfinite(cp[1]) || !std::isfinite(cp[2])) continue;
+                float d = fh3_dist2(pp, cp);
+                if (d < bestd) {
+                    bestd = d; best = o; best2 = o2;
+                    if (n < (int)sizeof b - 50) n += snprintf(b + n, sizeof b - n, " [+0x%X -> +0x%X %.2fm]", o, o2, sqrtf(d));
                 }
             }
         }
     }
-    if (off >= 0) {
-        g_fh3_link_off2.store(off2);
-        g_fh3_link_delta.store(delta);
-        g_fh3_link_off.store(off);
-        n += snprintf(b + n, sizeof b - n, " -> using +0x%X%s", off, off2 >= 0 ? " (one pointer further)" : "");
+    if (best >= 0) {
+        g_fh3_link_off2.store(best2);
+        g_fh3_link_off.store(best);
+        n += snprintf(b + n, sizeof b - n, " -> using +0x%X%s (%.2f m)", best, best2 >= 0 ? " and one pointer further" : "", sqrtf(bestd));
     } else {
         n += snprintf(b + n, sizeof b - n, " -> no link");
     }
@@ -3079,7 +3109,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.31";
+    info.version          = "2.0.0-fh3.32";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
