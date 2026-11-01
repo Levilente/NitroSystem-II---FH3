@@ -2113,6 +2113,16 @@ static void fh3_repair_save(void* db, const char* z) {
     if (r == 0) g_repaired.store(true);
 }
 
+static int fh3_prep(void* db, const char* z, int n, unsigned fl, void* old, void** pp, const char** tail) {
+    int r = g_orig_prepare(db, z, n, fl, old, pp, tail);
+    static std::atomic<int> fails{0};
+    if (r != 0 && z && fails.fetch_add(1) < 40 && g_api && g_mod) {
+        char b[700]; snprintf(b, sizeof b, "prepare failed (%d): %.500s", r, z);
+        for (char* c = b; *c; ++c) if (*c == '\n' || *c == '\r' || *c == '\t') *c = ' ';
+        g_api->log(g_mod, b);
+    }
+    return r;
+}
 static int detour_prepare(void* db, const char* z, int n, unsigned fl, void* old, void** pp, const char** tail) {
     if (!t_in_repair && !g_repaired.load()) fh3_repair_save(db, z);
     // The garage's part lists / installs go through nu_rewrite (view rows, installed marker, install = level change).
@@ -2130,17 +2140,17 @@ static int detour_prepare(void* db, const char* z, int n, unsigned fl, void* old
                 long gid = 0; const char* g = strstr(z, "GarageId = "); if (!g) { g = strstr(z, "WHERE Id = "); if (g) gid = atol(g + 11); } else gid = atol(g + 11);
                 if (gid > 0 && (unsigned)gid != nu_active_garage && !g_force_stage) { nu_activate((unsigned)gid); fh3_save_last_garage((unsigned)gid); }
             }
-            int r = g_orig_prepare(db, use, -1, fl, old, pp, tail);
+            int r = fh3_prep(db, use, -1, fl, old, pp, tail);
             if (tail) *tail = z + len;
             return r;
         }
     }
-    static std::atomic<int> left{400};
+    static std::atomic<int> left{900};
     if (z && left.load() > 0 && readable_ptr(z, 16)) {
         const char* keys[] = {"UpgradeParts", "UpgradeTypes", "UpgradeAreas", "PurchasedParts", "Career_Garage SET", "List_UpgradeMotorParts", "NitroSystemII", "PartEnum = 26", "900470", "900471", "900472", "900473"};
         bool hit = false;
         for (const char* k : keys) if (strstr(z, k)) { hit = true; break; }
-        if (hit && (strncmp(z, "SELECT 1 From Profile0_Career_PurchasedParts", 44) == 0 || strncmp(z, "CREATE INDEX", 12) == 0 || strncmp(z, "CREATE TABLE", 12) == 0 || strstr(z, "WHERE 1=2") ||
+        if (hit && ((strncmp(z, "SELECT 1 From Profile0_Career_PurchasedParts", 44) == 0 && !strstr(z, "PartEnum = 26")) || strncmp(z, "CREATE INDEX", 12) == 0 || strncmp(z, "CREATE TABLE", 12) == 0 || strstr(z, "WHERE 1=2") ||
                     strstr(z, "filedb.") || strncmp(z, "INSERT INTO [", 13) == 0)) hit = false;   // startup copying, not the garage
         if (hit && left.fetch_sub(1) > 0) {
             char b[900];
@@ -2150,13 +2160,13 @@ static int detour_prepare(void* db, const char* z, int n, unsigned fl, void* old
             char* big = (char*)malloc(len + 16);
             if (big) { snprintf(big, len + 16, "sql: %.*s", (int)len, z); for (char* c = big; *c; ++c) if (*c == '\n' || *c == '\r' || *c == '\t') *c = ' '; if (g_api && g_mod) g_api->log(g_mod, big); free(big); }
             (void)b;
-            return g_orig_prepare(db, z, n, fl, old, pp, tail);
+            return fh3_prep(db, z, n, fl, old, pp, tail);
             snprintf(b, sizeof b, "sql: %.*s", (int)len, z);
             for (char* c = b; *c; ++c) if (*c == '\n' || *c == '\r' || *c == '\t') *c = ' ';
             if (g_api && g_mod) g_api->log(g_mod, b);
         }
     }
-    return g_orig_prepare(db, z, n, fl, old, pp, tail);
+    return fh3_prep(db, z, n, fl, old, pp, tail);
 }
 
 typedef uint64_t (*HudCtrlFn)(void*, void*, void*, void*);
@@ -3456,7 +3466,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.48";
+    info.version          = "2.0.0-fh3.49";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
