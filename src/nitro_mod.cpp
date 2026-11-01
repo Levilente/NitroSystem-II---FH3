@@ -1428,7 +1428,7 @@ static bool fh3_scan_for(const uint8_t* start, size_t len, const uint8_t* msg, i
     return false;
 }
 
-static void fh3_walk_for_positions(std::vector<uintptr_t> roots, float x, float y, float z, float x2, float y2, float z2);
+static void fh3_dump_locators();
 static void fh3_find_tip_source(const uint8_t* msg) {
     char* car = (char*)g_player_cardynamics;
     if (!car || g_tipsrc_searched.exchange(true)) return;
@@ -1458,14 +1458,10 @@ static void fh3_find_tip_source(const uint8_t* msg) {
     }
     if (!hit) {
         g_api->log(g_mod, "tip source: not found in the car object or one pointer level behind it (the tips are built on the fly)");
-        static bool walked = false;
-        if (!walked) {
-            walked = true;
-            const float* a = (const float*)(msg + i0 * kFH3TipSize);
-            const float* c = (const float*)(msg + (j >= 0 ? j : i0) * kFH3TipSize);
-            std::vector<uintptr_t> roots = {(uintptr_t)car, (uintptr_t)g_fh3_pres.load(), (uintptr_t)g_fh3_player_deferred.load() - 0x10};
-            float x = a[12], y = a[13], z = a[14], x2 = c[12], y2 = c[13], z2 = c[14];
-            std::thread([roots, x, y, z, x2, y2, z2] { fh3_walk_for_positions(roots, x, y, z, x2, y2, z2); }).detach();
+        static bool dumped = false;
+        if (!dumped) {
+            dumped = true;
+            fh3_dump_locators();
         }
         return;
     }
@@ -1575,6 +1571,34 @@ static void fh3_walk_for_positions(std::vector<uintptr_t> roots, float x, float 
             }
         }
         if (!found) g_api->log(g_mod, "pointer to the matrices: none in the walked objects");
+    }
+}
+
+
+// Research (small and safe, unlike the graph walk that crashed the game on 1 Nov): the first backfire's tip positions were
+// found under presentation+0x7B0 -> [+0x2C8, +0x2E0, +0x2F8, +0x310 ...] (stride 0x18) in 0x1C0-byte blocks. Lists the valid
+// 4x4 matrices in the first blocks, and what the table around holds.
+static void fh3_dump_locators() {
+    char* pres = (char*)g_fh3_pres.load();
+    char b[1500];
+    if (!pres || !readable_ptr(pres + 0x7B0, 8)) { g_api->log(g_mod, "locators: no presentation"); return; }
+    uintptr_t M = *(uintptr_t*)(pres + 0x7B0);
+    if (!readable_ptr((void*)M, 0x400)) { g_api->log(g_mod, "locators: object at presentation+0x7B0 unreadable"); return; }
+    int n = snprintf(b, sizeof b, "locators: object %p at presentation+0x7B0; qwords +0x2A0..+0x340:", (void*)M);
+    for (int o = 0x2A0; o < 0x340; o += 8) n += snprintf(b + n, sizeof b - n, " %llX", (unsigned long long)*(uintptr_t*)(M + o));
+    g_api->log(g_mod, b);
+    uintptr_t first = *(uintptr_t*)(M + 0x2C8);
+    for (int k = 0; k < 12; ++k) {
+        uintptr_t q = first + (uintptr_t)k * 0x1C0;
+        uintptr_t listed = k < 8 ? *(uintptr_t*)(M + 0x2C8 + 0x18 * k) : 0;
+        if (!readable_ptr((void*)q, 0x1C0)) { snprintf(b, sizeof b, "locators: block %d at %p unreadable", k, (void*)q); g_api->log(g_mod, b); continue; }
+        n = snprintf(b, sizeof b, "locators: block %d at %p (table pointer %p) valid matrices:", k, (void*)q, (void*)listed);
+        for (int o = 0; o + 0x40 <= 0x1C0 && n < (int)sizeof b - 60; o += 4) {
+            if (!fh3_tip_valid((const uint8_t*)q + o)) continue;
+            const float* f = (const float*)((const uint8_t*)q + o);
+            n += snprintf(b + n, sizeof b - n, " +0x%X(%.2f,%.2f,%.2f)", o, f[12], f[13], f[14]);
+        }
+        g_api->log(g_mod, b);
     }
 }
 
@@ -2791,7 +2815,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.20";
+    info.version          = "2.0.0-fh3.21";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
