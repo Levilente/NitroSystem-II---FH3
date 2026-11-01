@@ -1344,46 +1344,28 @@ static void fh3_forget_player_pres() {
 
 static uint64_t detour_fh3_queue(void* a, void* b, void* c, void* d, void* e, void* f, void* g, void* h) {
     g_fh3_queue_calls.fetch_add(1, std::memory_order_relaxed);
-    if (a && g_player_cardynamics && readable_ptr((char*)a + 0x10, 8)) {
-        // the object's own vtable is either the class's (0x468B058) or the ref-counted wrapper's that the game instantiates (0x468B9B8)
-        uintptr_t vt = *(uintptr_t*)((char*)a + 0x10) - (uintptr_t)g_game_base;
-        void* deferred = (char*)a + 0x10;
-        void* cur = g_fh3_player_deferred.load();
-        static uint64_t last_sample = 0;
-        static int other_streak = 0;
+    // Only until the player's presentation is known (then nothing here costs anything). The stack of a car update has the
+    // player's car on it for several presentations while the car is moving, so the first hit is not trusted: the same
+    // presentation has to be the only one hit on 5 samples in a row (one sample per clock tick, ~15 ms).
+    if (!g_fh3_player_deferred.load() && a && g_player_cardynamics) {
+        static uint64_t last_try = 0;
+        static void* cand = nullptr;
+        static int cand_hits = 0;
         uint64_t now = GetTickCount64();
-        // the player's presentation is whichever one the player's own car update keeps posting to. After a car swap the one we
-        // remember can still be alive (the game keeps the old car's around, and builds the new car's late), so the stack is
-        // sampled every 50 ms even with a presentation known, and a different one seen 4 samples in a row replaces it.
-        if ((vt == kFH3DeferredVtable || vt == kFH3DeferredVtable2) && (!cur || now - last_sample >= 50)) {
-            last_sample = now;
-            if (fh3_stack_has_player(0x2000)) {
+        if (now != last_try && readable_ptr((char*)a + 0x10, 8)) {
+            last_try = now;
+            // the object's own vtable is either the class's (0x468B058) or the ref-counted wrapper's that the game instantiates (0x468B9B8)
+            uintptr_t vt = *(uintptr_t*)((char*)a + 0x10) - (uintptr_t)g_game_base;
+            void* deferred = (char*)a + 0x10;
+            if ((vt == kFH3DeferredVtable || vt == kFH3DeferredVtable2) && fh3_stack_has_player(0x2000)) {
                 g_fh3_queue_stack_hits.fetch_add(1, std::memory_order_relaxed);
-                if (!cur) {
-                    g_fh3_player_deferred.store(deferred);
-                    g_fh3_post_tid.store(GetCurrentThreadId());
-                    other_streak = 0;
-                    fh3_find_pres(deferred);
-                } else if (deferred == cur) {
-                    other_streak = 0;
-                } else if (++other_streak >= 4) {
-                    other_streak = 0;
-                    char buf[160];
-                    snprintf(buf, sizeof buf, "flames: the player's car now posts to presentation %p, not %p: switching.", deferred, cur);
-                    g_api->log(g_mod, buf);
-                    fh3_forget_player_pres();
+                if (deferred == cand) ++cand_hits; else { cand = deferred; cand_hits = 1; }
+                if (cand_hits >= 5) {
+                    cand_hits = 0;
                     g_fh3_player_deferred.store(deferred);
                     g_fh3_post_tid.store(GetCurrentThreadId());
                     fh3_find_pres(deferred);
                 }
-            }
-        } else if (!cur && vt != kFH3DeferredVtable && vt != kFH3DeferredVtable2 && fh3_stack_has_player(0x2000)) {
-            static int logs = 4;
-            if (logs-- > 0) {
-                char buf[160];
-                snprintf(buf, sizeof buf, "flames: a queued message from the player's car update has an object at %p with vtable game+0x%llX (not the presentation)",
-                         deferred, (unsigned long long)vt);
-                g_api->log(g_mod, buf);
             }
         }
     }
@@ -1621,7 +1603,7 @@ static void fh3_dump_locators() {
     // the table at +0x2B0: entries of 0x18 bytes (control block vtable, counts, pointer to a 0x1C0-byte block). Names are looked
     // for inside the block and behind its pointers.
     if (!readable_ptr((void*)M, 0x700)) return;
-    for (int k = 0; k < 24; ++k) {
+    for (int k = 0; k < (readable_ptr((void*)M, 0xB00) ? 64 : 24); ++k) {
         uintptr_t q = *(uintptr_t*)(M + 0x2B0 + 0x18 * k);
         if (q < 0x10000 || !readable_ptr((void*)q, 0x1C0)) { snprintf(b, sizeof b, "locators: [%d] %p unreadable", k, (void*)q); g_api->log(g_mod, b); continue; }
         const char* name = nullptr;
@@ -1639,7 +1621,7 @@ static void fh3_dump_locators() {
         const float* f = (const float*)(bl + 0x70);
         snprintf(b, sizeof b, "locators: [%d] block %p name \"%s\" matrix %s pos %.2f,%.2f,%.2f", k, bl, nm, fh3_tip_valid(bl + 0x70) ? "valid" : "invalid", f[12], f[13], f[14]);
         g_api->log(g_mod, b);
-        if (!name) {
+        if (!name && k < 3) {
             int m = snprintf(b, sizeof b, "locators: [%d] no name; first qwords:", k);
             for (int o = 0; o < 0x60; o += 8) m += snprintf(b + m, sizeof b - m, " %llX", (unsigned long long)*(const uintptr_t*)(bl + o));
             g_api->log(g_mod, b);
@@ -1660,10 +1642,11 @@ static bool fh3_build_locator_tips(uint8_t* out, uint32_t* mask_out) {
     if (!pres || !readable_ptr(pres + 0x7B0, 8)) return false;
     uintptr_t M = *(uintptr_t*)(pres + 0x7B0);
     if (M < 0x10000 || !readable_ptr((void*)M, 0x700)) return false;
+    const int entries = readable_ptr((void*)M, 0xB00) ? 64 : 24;   // the Urus has more than 24 locators in the table
     struct E { int num; const uint8_t* mat; };
     E e[32];
     int n = 0;
-    for (int k = 0; k < 24 && n < 32; ++k) {
+    for (int k = 0; k < entries && n < 32; ++k) {
         uintptr_t q = *(uintptr_t*)(M + 0x2B0 + 0x18 * k);
         if (q < 0x10000 || !readable_ptr((void*)q, 0x1C0)) continue;
         const uint8_t* bl = (const uint8_t*)q;
@@ -1714,7 +1697,7 @@ static void fh3_compare_locator_tips(const uint8_t* msg) {
              ok ? "built" : "could not build", m, real, worst, (ok && m == real && worst < 1e-3f) ? "MATCH" : "differs");
     g_api->log(g_mod, b);
     static int dumps = 0;
-    if (!ok && dumps < 3) { ++dumps; fh3_dump_locators(); }
+    if (!(ok && m == real) && dumps < 3) { ++dumps; fh3_dump_locators(); }
 }
 
 static uint64_t detour_fh3_post(void* deferred, const void* tips) {
@@ -2992,7 +2975,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.29";
+    info.version          = "2.0.0-fh3.30";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
