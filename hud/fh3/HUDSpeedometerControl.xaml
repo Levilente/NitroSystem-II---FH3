@@ -582,6 +582,7 @@
                     <ImageSource x:Key="A_BitmapImage_STMIcon_On">/ForzaUI;component/Textures/Data_Bound/Anthem/HUD/HUD_Dial_Assist_Analogue_STM_On.png</ImageSource>
                 </DataTemplate.Resources>
                 <Grid DataContext="{Binding Path=DataContext, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}">
+                    <Grid Width="312" Height="312" HorizontalAlignment="Center" VerticalAlignment="Center" Clip="M 156.0,170.0 L -156.5,419.7 A 400,400 0 0 1 -217.6,312.9 Z M 156.0,170.0 L -225.0,291.8 A 400,400 0 0 1 -244.0,170.2 Z M 156.0,170.0 L -243.4,147.9 A 400,400 0 0 1 -217.8,27.5 Z M 156.0,170.0 L -209.2,6.9 A 400,400 0 0 1 -142.3,-96.5 Z">
 <!-- Authentic Fast & Furious NOS Radial Bar Translucent Background Track (4 Segments) -->
                     <!-- Background Segment 4 (Top: Angle 128.7) -->
                     <local:FZMaterial Height="300"
@@ -601,7 +602,7 @@
                             <local:FZMaterialPresetRadialBar TargetRatio="1.0"
                                                              ShadowIntensity="0"
                                                              TipGlowFade="0.0"
-                                                             AngleAmount="0.785"
+                                                             AngleAmount="0.936"
                                                              BarWidth="0.051"
                                                              BackgroundColor="#00000000"
                                                              Ratio="1.0"/>
@@ -626,7 +627,7 @@
                             <local:FZMaterialPresetRadialBar TargetRatio="1.0"
                                                              ShadowIntensity="0"
                                                              TipGlowFade="0.0"
-                                                             AngleAmount="0.785"
+                                                             AngleAmount="0.936"
                                                              BarWidth="0.051"
                                                              BackgroundColor="#00000000"
                                                              Ratio="1.0"/>
@@ -651,7 +652,7 @@
                             <local:FZMaterialPresetRadialBar TargetRatio="1.0"
                                                              ShadowIntensity="0"
                                                              TipGlowFade="0.0"
-                                                             AngleAmount="0.785"
+                                                             AngleAmount="0.936"
                                                              BarWidth="0.051"
                                                              BackgroundColor="#00000000"
                                                              Ratio="1.0"/>
@@ -676,7 +677,7 @@
                             <local:FZMaterialPresetRadialBar TargetRatio="1.0"
                                                              ShadowIntensity="0"
                                                              TipGlowFade="0.0"
-                                                             AngleAmount="0.785"
+                                                             AngleAmount="0.936"
                                                              BarWidth="0.051"
                                                              BackgroundColor="#00000000"
                                                              Ratio="1.0"/>
@@ -702,7 +703,7 @@
                             <local:FZMaterialPresetRadialBar TargetRatio="1.0"
                                                              ShadowIntensity="0"
                                                              TipGlowFade="0.0"
-                                                             AngleAmount="0.785"
+                                                             AngleAmount="0.936"
                                                              BarWidth="0.051"
                                                              BackgroundColor="#00000000"
                                                              Ratio="{Binding XPos}"/>
@@ -727,7 +728,7 @@
                             <local:FZMaterialPresetRadialBar TargetRatio="1.0"
                                                              ShadowIntensity="0"
                                                              TipGlowFade="0.0"
-                                                             AngleAmount="0.785"
+                                                             AngleAmount="0.936"
                                                              BarWidth="0.051"
                                                              BackgroundColor="#00000000"
                                                              Ratio="{Binding XPos}"/>
@@ -752,7 +753,7 @@
                             <local:FZMaterialPresetRadialBar TargetRatio="1.0"
                                                              ShadowIntensity="0"
                                                              TipGlowFade="0.0"
-                                                             AngleAmount="0.785"
+                                                             AngleAmount="0.936"
                                                              BarWidth="0.051"
                                                              BackgroundColor="#00000000"
                                                              Ratio="{Binding XPos}"/>
@@ -777,7 +778,7 @@
                             <local:FZMaterialPresetRadialBar TargetRatio="1.0"
                                                              ShadowIntensity="0"
                                                              TipGlowFade="0.0"
-                                                             AngleAmount="0.785"
+                                                             AngleAmount="0.936"
                                                              BarWidth="0.051"
                                                              BackgroundColor="#00000000"
                                                              Ratio="{Binding XPos}"/>
@@ -1125,6 +1126,7 @@
                         </local:FZMaterial.Preset>
                     </local:FZMaterial>
 
+                    </Grid>
                     <Canvas Width="312" Height="312" IsHitTestVisible="False" Opacity="{Binding RPMGaugeNumbers[20].YPos}">
                         <Path Stroke="#FFFFFFFF" StrokeThickness="2" Data="M 44.3,262.9 A 144.5,144.5 0 0 1 52.8,67.8"/>
                         <Path Stroke="#FFFFFFFF" StrokeThickness="2" Data="M 50.1,258.1 L 37.8,268.4"/>

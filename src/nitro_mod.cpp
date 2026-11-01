@@ -2017,10 +2017,48 @@ static uint32_t fh3_car_exhaust_tips(char* car, uint8_t* msg) {
 // (db, zSql, nBytes, prepFlags, pOld, ppStmt, pzTail). Logged only, nothing is changed yet.
 typedef int (*FH3PrepareFn)(void*, const char*, int, unsigned, void*, void**, const char**);
 static FH3PrepareFn g_orig_prepare = nullptr;
+// The Nitrous Kit rows for the game database (FH3 layout: the area link is its own table, no AreaId in UpgradeTypes).
+static void fh3_kit_sql(std::string& out) {
+    char b[700];
+    const char* icon = "GAME:\\Media\\UI\\Textures\\Data_Bound\\Upgrade_Parts\\Engine_Power\\engine_power_Icon.swatchbin";
+    const char* iconlg = "GAME:\\Media\\UI\\Textures\\Data_Bound\\Upgrade_Parts\\Engine_Power\\engine_power_LG_Icon.swatchbin";
+    const char* stock = "GAME:\\Media\\UI\\Textures\\Data_Bound\\Upgrade_Parts\\stock_Icon.swatchbin";
+    const char* stocklg = "GAME:\\Media\\UI\\Textures\\Data_Bound\\Upgrade_Parts\\stock_LG_Icon.swatchbin";
+    snprintf(b, sizeof b, "INSERT OR REPLACE INTO UpgradeTypes (id, PartEnum, IsException, DisplayOrder, EverymanUpgradeDisplayOrder, Name, Description, IconPath, ImagePath) VALUES (%d, %d, 0, 15, -1, 'Nitrous Kit', 'Nitrous oxide injection. Hold the nitro button while driving; a higher stage pushes harder.', '%s', '%s');\n", NU_TYPE_ID, NU_ENUM, icon, iconlg);
+    out += b;
+    snprintf(b, sizeof b, "INSERT OR REPLACE INTO UpgradeAreaForUpgradeType (id, UpgradeAreaId, UpgradeTypeId) VALUES (%d, 1, %d);\n", NU_TYPE_ID, NU_TYPE_ID);
+    out += b;
+    static const char* names[NU_LEVELS] = {"Stock", "Stage 1 Nitrous", "Stage 2 Nitrous", "Stage 3 Nitrous"};
+    for (int l = 0; l < NU_LEVELS; ++l) {
+        snprintf(b, sizeof b, "INSERT OR REPLACE INTO Upgrades (id, TypeId, IsException, Name, Level, Description, IconPath, ImagePath) VALUES (%d, '%d', 0, '%s', %d, '%s', '%s', '%s');\n",
+                 NU_UPGRADE_BASE + l, NU_TYPE_ID, names[l], l, l ? "Nitrous injection." : "No nitrous system fitted.", l ? icon : stock, l ? iconlg : stocklg);
+        out += b;
+        snprintf(b, sizeof b, "INSERT OR REPLACE INTO List_UpgradeMotorParts (Id, MotorID, Level, IsStock, ManufacturerID, MassDiff, WeightDistDiff, Price, TorqueScale) VALUES (%ld, %d, %d, %d, 0, 0.0, 0.0, %ld, 1.0);\n",
+                 (long)(NU_ID_BASE + l), NU_MOTOR_ID, l, l == 0, l ? nu_cfg.price[l] : 0L);
+        out += b;
+    }
+}
+
 static int detour_prepare(void* db, const char* z, int n, unsigned fl, void* old, void** pp, const char** tail) {
+    // The garage lists the car's upgrade parts through a view built per car: our kit rows join it.
+    if (z && readable_ptr(z, 64) && strncmp(z, "CREATE VIEW", 11) == 0 && strstr(z, "View_UpgradeParts AS SELECT 0 AS PartEnum")) {
+        const size_t len = n < 0 ? strlen(z) : (size_t)n;
+        std::string out(len + 3000, '\0');
+        NuBuf nb;
+        nu_begin(&nb, &out[0], out.size());
+        long ord = 0;
+        if (nu_view(z, len, &nb, &ord, &nu_cfg)) {
+            out.resize(nb.at);
+            static std::atomic<int> logged{0};
+            if (logged.fetch_add(1) < 3 && g_api && g_mod) { char b[96]; snprintf(b, sizeof b, "kit: the nitrous kit rows joined the upgrade view of car ordinal %ld", ord); g_api->log(g_mod, b); }
+            int r = g_orig_prepare(db, out.c_str(), (int)out.size(), fl, old, pp, tail);
+            if (tail) *tail = z + len;
+            return r;
+        }
+    }
     static std::atomic<int> left{400};
     if (z && left.load() > 0 && readable_ptr(z, 16)) {
-        const char* keys[] = {"UpgradeParts", "UpgradeTypes", "UpgradeAreas", "PurchasedParts", "Career_Garage SET", "List_UpgradeMotorParts", "NitroSystemII"};
+        const char* keys[] = {"UpgradeParts", "UpgradeTypes", "UpgradeAreas", "PurchasedParts", "Career_Garage SET", "List_UpgradeMotorParts", "NitroSystemII", "PartEnum = 47", "900470", "900471", "900472", "900473"};
         bool hit = false;
         for (const char* k : keys) if (strstr(z, k)) { hit = true; break; }
         if (hit && (strncmp(z, "CREATE INDEX", 12) == 0 || strncmp(z, "CREATE TABLE", 12) == 0 || strstr(z, "WHERE 1=2") ||
@@ -2028,7 +2066,12 @@ static int detour_prepare(void* db, const char* z, int n, unsigned fl, void* old
         if (hit && left.fetch_sub(1) > 0) {
             char b[900];
             size_t len = n < 0 ? strlen(z) : (size_t)n;
-            if (len > 600) len = 600;
+            const bool kitrel = strstr(z, "PartEnum = 47") || strstr(z, "9004") || strstr(z, "PurchasedParts") || strstr(z, "Career_Garage SET");
+            if (len > (kitrel ? 3400 : 300)) len = kitrel ? 3400 : 300;
+            char* big = (char*)malloc(len + 16);
+            if (big) { snprintf(big, len + 16, "sql: %.*s", (int)len, z); for (char* c = big; *c; ++c) if (*c == '\n' || *c == '\r' || *c == '\t') *c = ' '; if (g_api && g_mod) g_api->log(g_mod, big); free(big); }
+            (void)b;
+            return g_orig_prepare(db, z, n, fl, old, pp, tail);
             snprintf(b, sizeof b, "sql: %.*s", (int)len, z);
             for (char* c = b; *c; ++c) if (*c == '\n' || *c == '\r' || *c == '\t') *c = ' ';
             if (g_api && g_mod) g_api->log(g_mod, b);
@@ -2325,7 +2368,7 @@ static void detour_speedo_tick(void* speedo, float rpm) {
         }
         constexpr float kFH3Rot = NITRO_FH3 ? -5.0f : 0.0f;   // the FH3 dial's bar is turned 5 degrees down
         // FH3: the four segments are drawn 17 degrees wide (gaps between them, like the digital bar), not 20.26
-        constexpr float kSegW = NITRO_FH3 ? 17.0f : 20.26f;
+        constexpr float kSegW = 20.26f;   // the gaps between the four segments are cut by a clip in the XAML
         leading_angle = leading_angle - (s4 > 0.001f ? 118.57f + s4 * 20.26f : s3 > 0.001f ? 97.67f + s3 * 20.26f : s2 > 0.001f ? 76.77f + s2 * 20.26f : 55.87f + s1 * 20.26f)
                       + (s4 > 0.001f ? 118.57f + s4 * kSegW : s3 > 0.001f ? 97.67f + s3 * kSegW : s2 > 0.001f ? 76.77f + s2 * kSegW : 55.87f + s1 * kSegW);
         float dg[4] = {0, 0, 0, 0};   // digital bar: glow of the leading segment while the nitro burns
@@ -3334,7 +3377,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.41";
+    info.version          = "2.0.0-fh3.43";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
@@ -3349,8 +3392,12 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     // Initialize paths & load persistent settings from NitroSystemII.ini
     init_paths();
     load_config();
-    if (api->api_version >= 2 && api->add_sql)   // a harmless table: shows whether the game accepts the platform's database copy
-        api->add_sql(g_mod, "CREATE TABLE IF NOT EXISTS NitroSystemII_Probe (x INTEGER);");
+    if (api->api_version >= 2 && api->add_sql) {   // the Nitrous Kit rows (Engine > Custom upgrade)
+        if (nu_cfg.price[1] == 0) { nu_cfg.price[1] = 15000; nu_cfg.price[2] = 30000; nu_cfg.price[3] = 60000; }
+        std::string sql;
+        fh3_kit_sql(sql);
+        api->add_sql(g_mod, sql.c_str());
+    }
     // The garage upgrade (the Nitrous Kit part). Without it the mod has no way to know a car owns nitrous.
     // FH3: the garage upgrade isn't ported yet. Every car gets the stage in [FH3] Stage (1-3, default 2), with the
     // boosts from [Upgrade] as before.
