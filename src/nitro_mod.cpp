@@ -1605,6 +1605,11 @@ static void fh3_dump_locators() {
         const float* f = (const float*)(bl + 0x70);
         snprintf(b, sizeof b, "locators: [%d] block %p name \"%s\" matrix %s pos %.2f,%.2f,%.2f", k, bl, nm, fh3_tip_valid(bl + 0x70) ? "valid" : "invalid", f[12], f[13], f[14]);
         g_api->log(g_mod, b);
+        if (!name) {
+            int m = snprintf(b, sizeof b, "locators: [%d] no name; first qwords:", k);
+            for (int o = 0; o < 0x60; o += 8) m += snprintf(b + m, sizeof b - m, " %llX", (unsigned long long)*(const uintptr_t*)(bl + o));
+            g_api->log(g_mod, b);
+        }
     }
 }
 
@@ -1674,6 +1679,8 @@ static void fh3_compare_locator_tips(const uint8_t* msg) {
     snprintf(b, sizeof b, "locator tips: %s, built mask %02X vs the game's %02X, largest difference in the shared tips %.5f -> %s",
              ok ? "built" : "could not build", m, real, worst, (ok && m == real && worst < 1e-3f) ? "MATCH" : "differs");
     g_api->log(g_mod, b);
+    static int dumps = 0;
+    if (!ok && dumps < 3) { ++dumps; fh3_dump_locators(); }
 }
 
 static uint64_t detour_fh3_post(void* deferred, const void* tips) {
@@ -1762,7 +1769,14 @@ static void fh3_drive_flames() {
         if (built_for != g_fh3_pres.load() || (!built_mask && now - built_tick > 1000)) {
             built_for = g_fh3_pres.load();
             built_tick = now;
-            if (!fh3_build_locator_tips(built, &built_mask)) built_mask = 0;
+            if (!fh3_build_locator_tips(built, &built_mask)) {
+                built_mask = 0;
+                static void* dumped_for = nullptr, *failing_for = nullptr;
+                static uint64_t failing_since = 0;
+                static int dumps = 0;
+                if (failing_for != built_for) { failing_for = built_for; failing_since = now; }
+                if (dumped_for != built_for && dumps < 3 && now - failing_since > 3000) { dumped_for = built_for; ++dumps; fh3_dump_locators(); }
+            }
         }
         if (!built_mask) return;
         memcpy(msg, built, kFH3TipBytes);
@@ -2947,7 +2961,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.27";
+    info.version          = "2.0.0-fh3.28";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
