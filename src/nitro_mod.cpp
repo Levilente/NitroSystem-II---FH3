@@ -2264,14 +2264,26 @@ static void fh3_hook_dbq() {
     FH3Hook* h = g_api->hook_function(g_mod, "db query (trace)", fn, (void*)detour_dbq, (void**)&g_orig_dbq);
     if (!(h && g_api->enable_hooks(g_mod, h))) g_orig_dbq = nullptr;
 }
+static uintptr_t g_buy_fault_at = 0, g_buy_fault_addr = 0;
+static int fh3_buy_filter(EXCEPTION_POINTERS* ep) {
+    g_buy_fault_at = (uintptr_t)ep->ExceptionRecord->ExceptionAddress;
+    g_buy_fault_addr = ep->ExceptionRecord->NumberParameters > 1 ? (uintptr_t)ep->ExceptionRecord->ExceptionInformation[1] : 0;
+    return EXCEPTION_EXECUTE_HANDLER;
+}
 static bool fh3_kit_buy_guarded(void* sess, int gid, long pid) {
     bool ok = false;
+    g_buy_fault_at = 0;
     __try {
         void* r2 = g_orig_buy((uint64_t)sess, (uint64_t)gid, 26, (uint64_t)pid, 0xFFFFFFFFull, 0, 0, 1, 0, 0, 0, 0);
         ok = ((uintptr_t)r2 & 0xFF) != 0;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } __except (fh3_buy_filter(GetExceptionInformation())) {
         ok = false;
-        if (g_api && g_mod) g_api->log(g_mod, "kit purchase: the game's purchase routine faulted (caught)");
+    }
+    if (g_buy_fault_at && g_api && g_mod) {
+        char m[160]; const uintptr_t gb = (uintptr_t)g_game_base;
+        snprintf(m, sizeof m, "kit purchase: the game's purchase routine faulted at %s+%llX reading %llX (caught)", g_buy_fault_at > gb && g_buy_fault_at < gb + 0x6000000 ? "game" : "abs",
+                 (unsigned long long)(g_buy_fault_at > gb && g_buy_fault_at < gb + 0x6000000 ? g_buy_fault_at - gb : g_buy_fault_at), (unsigned long long)g_buy_fault_addr);
+        g_api->log(g_mod, m);
     }
     return ok;
 }
@@ -3844,7 +3856,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.72";
+    info.version          = "2.0.0-fh3.73";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
