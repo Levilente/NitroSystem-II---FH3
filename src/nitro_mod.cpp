@@ -2112,6 +2112,43 @@ static int detour_memcmp(const void* x, const void* y, size_t n) {
     }
     return g_orig_memcmp(x, y, n);
 }
+
+// FH3: second stop in the A handler's worker (0x16FAEF0): "is the previewed part different from the installed one" is
+// read from the 43-slot part sets at enum*4+8, which for a new slot is memory past the set (equal on both sides), so
+// the part is dropped. The branch at 0x16FB341 (je skip) is routed through a stub that says "different" for such a part.
+extern "C" uintptr_t g_fh3_skip_target;
+uintptr_t g_fh3_skip_target = 0;
+extern "C" void fh3_basket_stub();
+__asm__(".text\n.globl fh3_basket_stub\nfh3_basket_stub:\n"
+        "test %al,%al\n"
+        "jnz 1f\n"
+        "push %rdx\n"
+        "mov 0x48(%rbp),%rdx\n"
+        "mov 0x5f0(%rdx),%edx\n"
+        "cmp $42,%edx\n"
+        "pop %rdx\n"
+        "jg 1f\n"
+        "add $8,%rsp\n"
+        "jmp *g_fh3_skip_target(%rip)\n"
+        "1: ret\n");
+static void install_basket_patch(uintptr_t base) {
+    unsigned char* site = (unsigned char*)(base + 0x16FB341);
+    unsigned char* slot = (unsigned char*)(base + 0x16FB5E8);
+    static const unsigned char orig[6] = {0x0F, 0x84, 0x0D, 0x02, 0x00, 0x00};
+    if (memcmp(site, orig, 6) != 0) { if (g_api && g_mod) g_api->log(g_mod, "basket patch: unexpected code at the branch, not patched"); return; }
+    for (int i = 0; i < 8; ++i) if (slot[i] != 0xCC) { if (g_api && g_mod) g_api->log(g_mod, "basket patch: slot area is not free, not patched"); return; }
+    g_fh3_skip_target = base + 0x16FB554;
+    DWORD old;
+    if (!VirtualProtect(slot, 8, PAGE_EXECUTE_READWRITE, &old)) return;
+    *(uintptr_t*)slot = (uintptr_t)&fh3_basket_stub;
+    VirtualProtect(slot, 8, old, &old);
+    const int64_t rel = (int64_t)(uintptr_t)slot - (int64_t)(uintptr_t)(site + 6);
+    if (!VirtualProtect(site, 6, PAGE_EXECUTE_READWRITE, &old)) return;
+    site[0] = 0xFF; site[1] = 0x15; *(int32_t*)(site + 2) = (int32_t)rel;
+    VirtualProtect(site, 6, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), site, 6);
+    if (g_api && g_mod) g_api->log(g_mod, "basket patch installed (new-slot parts count as a change in the add step)");
+}
 static std::atomic<uint64_t> g_kit_tick{0};
 typedef int (*FH3ExecFn)(void*, const char*, void*, void*, char**);
 static std::atomic<int> g_repair_tries{0};
@@ -3231,6 +3268,7 @@ static void nitro_worker_thread() {
             if (!(h && g_api->enable_hooks(g_mod, h))) g_tr_orig[i] = nullptr;
         }
     }
+        install_basket_patch((uintptr_t)base);
         FH3Hook* h5 = g_api->hook_function(g_mod, "A handler", (char*)base + 0x16DC050, (void*)detour_select, (void**)&g_orig_select);
         if (!(h5 && g_api->enable_hooks(g_mod, h5))) g_orig_select = nullptr;
         FH3Hook* h6 = g_api->hook_function(g_mod, "memcmp thunk", (char*)base + 0x1802D82, (void*)detour_memcmp, (void**)&g_orig_memcmp);
@@ -3622,7 +3660,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.63";
+    info.version          = "2.0.0-fh3.64";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
