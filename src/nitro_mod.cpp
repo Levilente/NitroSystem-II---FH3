@@ -2077,15 +2077,40 @@ static void* detour_qb(uint64_t a, uint64_t e, uint64_t c, uint64_t d, uint64_t 
 typedef void* (*TraceFn)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 static TraceFn g_tr_orig[8] = {};
 static std::atomic<int> g_tr_n[8] = {};
-static const char* const k_tr_name[8] = {"0x36D360", "0x16FAEF0", "0x16DC050", "0x38D0B0", "0x16CC5B0", "BasketItem ctor", "0x1419EA220", "0x1419EA240"};
+static const char* const k_tr_name[8] = {"0x36D360", "0x16FAEF0", "0x38BCD0", "0x38D0B0", "0x16CC5B0", "BasketItem ctor", "0x1419EA220", "0x1419EA240"};
 template <int I> static void* trace_detour(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
     if (g_tr_n[I].fetch_add(1) < 25 && g_api && g_mod) {
         int ty = -99;
-        if (I == 1 || I == 2) { const char* o = (const char*)a; if (readable_ptr(o + 0x5f0, 4)) ty = *(const int*)(o + 0x5f0); }
+        if (I == 1) { const char* o = (const char*)a; if (readable_ptr(o + 0x5f0, 4)) ty = *(const int*)(o + 0x5f0); }
         char m[160]; snprintf(m, sizeof m, "trace %s: edx=%d r8d=%d r9d=%d type@5f0=%d", k_tr_name[I], (int)b, (int)c, (int)d, ty);
         g_api->log(g_mod, m);
     }
     return g_tr_orig[I](a, b, c, d, e, f, g, h, i, j, k, l);
+}
+
+// FH3: the A handler (0x16DC050) first compares the car's part set (0xB4 bytes = the 43 enum slots) with the one being
+// previewed and leaves when they are equal. A part of an enum above 42 never changes those bytes, so it never counts as a
+// change. While that handler runs for such a part, that one comparison says "different".
+typedef void* (*SelectFn)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+typedef int (*MemcmpFn)(const void*, const void*, size_t);
+static SelectFn g_orig_select = nullptr;
+static MemcmpFn g_orig_memcmp = nullptr;
+static thread_local bool t_sel_new = false;
+static void* detour_select(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
+    const bool ours = (int)b > 42;
+    if (ours) t_sel_new = true;
+    void* r = g_orig_select(a, b, c, d, e, f, g, h, i, j, k, l);
+    t_sel_new = false;
+    return r;
+}
+static int detour_memcmp(const void* x, const void* y, size_t n) {
+    if (t_sel_new && n == 0xB4) {
+        t_sel_new = false;
+        static std::atomic<int> lg{0};
+        if (lg.fetch_add(1) < 8 && g_api && g_mod) g_api->log(g_mod, "A handler: part set comparison answered 'different' for a new-slot part");
+        return 1;
+    }
+    return g_orig_memcmp(x, y, n);
 }
 static std::atomic<uint64_t> g_kit_tick{0};
 typedef int (*FH3ExecFn)(void*, const char*, void*, void*, char**);
@@ -3199,13 +3224,17 @@ static void nitro_worker_thread() {
         FH3Hook* h2 = g_api->hook_function(g_mod, "enum->list", (char*)base + 0x19D9820, (void*)detour_enum_list, (void**)&g_orig_enum_list);
         if (!(h2 && g_api->enable_hooks(g_mod, h2))) g_orig_enum_list = nullptr;
     {
-        static const uintptr_t rvas[8] = {0x36D360, 0x16FAEF0, 0x16DC050, 0x38D0B0, 0x16CC5B0, 0x1285E20, 0x19EA220, 0x19EA240};
+        static const uintptr_t rvas[8] = {0x36D360, 0x16FAEF0, 0x38BCD0, 0x38D0B0, 0x16CC5B0, 0x1285E20, 0x19EA220, 0x19EA240};
         static void* const dets[8] = {(void*)trace_detour<0>, (void*)trace_detour<1>, (void*)trace_detour<2>, (void*)trace_detour<3>, (void*)trace_detour<4>, (void*)trace_detour<5>, (void*)trace_detour<6>, (void*)trace_detour<7>};
         for (int i = 0; i < 8; ++i) {
             FH3Hook* h = g_api->hook_function(g_mod, k_tr_name[i], (char*)base + rvas[i], dets[i], (void**)&g_tr_orig[i]);
             if (!(h && g_api->enable_hooks(g_mod, h))) g_tr_orig[i] = nullptr;
         }
     }
+        FH3Hook* h5 = g_api->hook_function(g_mod, "A handler", (char*)base + 0x16DC050, (void*)detour_select, (void**)&g_orig_select);
+        if (!(h5 && g_api->enable_hooks(g_mod, h5))) g_orig_select = nullptr;
+        FH3Hook* h6 = g_api->hook_function(g_mod, "memcmp thunk", (char*)base + 0x1802D82, (void*)detour_memcmp, (void**)&g_orig_memcmp);
+        if (!(h6 && g_api->enable_hooks(g_mod, h6))) g_orig_memcmp = nullptr;
         FH3Hook* h3 = g_api->hook_function(g_mod, "query builder A", (char*)base + 0x37E980, (void*)detour_qa, (void**)&g_orig_qa);
         if (!(h3 && g_api->enable_hooks(g_mod, h3))) g_orig_qa = nullptr;
         FH3Hook* h4 = g_api->hook_function(g_mod, "query builder B", (char*)base + 0x410750, (void*)detour_qb, (void**)&g_orig_qb);
@@ -3593,7 +3622,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.62";
+    info.version          = "2.0.0-fh3.63";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
