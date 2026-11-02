@@ -2515,6 +2515,23 @@ static void fh3_repair_save(void* db, const char* z) {
     ex(db, "UPDATE Profile0_Career_Garage SET MotorParts=-1 WHERE MotorParts BETWEEN 900470 AND 900473", nullptr, nullptr, nullptr);
     if (NU_ENUM != 26) ex(db, "DELETE FROM Profile0_Career_PurchasedParts WHERE PartEnum IN (26, 42) AND PartId BETWEEN 900470 AND 900473", nullptr, nullptr, nullptr);
     if (r == 0) ex(db, "UPDATE Profile0_Career_Garage SET AspirationTypeId=1 WHERE AspirationTypeId=4 AND QuadTurbo<0", nullptr, nullptr, nullptr);
+    if (r == 0) {   // research: how the game's own part names are stored (loc keys or text?)
+        static const char* qs[] = {
+            "SELECT 'type', id, PartEnum, Name, Description FROM UpgradeTypes WHERE PartEnum IN (17, 26, 47)",
+            "SELECT 'upg', u.id, u.Level, u.Name, u.Description, u.IconPath FROM Upgrades u JOIN UpgradeTypes t ON u.TypeId = t.id WHERE t.PartEnum IN (17, 47) LIMIT 10",
+            "SELECT 'cols', name, type FROM pragma_table_info('Upgrades')",
+        };
+        for (const char* q : qs) {
+            char* err = nullptr;
+            ex(db, q, (void*)+[](void*, int n, char** v, char**) -> int {
+                char line[700]; int o = snprintf(line, sizeof line, "names research:");
+                for (int i = 0; i < n && o < (int)sizeof line - 2; ++i) o += snprintf(line + o, sizeof line - o, " | %.150s", v[i] ? v[i] : "NULL");
+                if (g_api && g_mod) g_api->log(g_mod, line);
+                return 0;
+            }, nullptr, &err);
+            if (err && g_api && g_mod) { char b[300]; snprintf(b, sizeof b, "names research error: %.250s", err); g_api->log(g_mod, b); }
+        }
+    }
     t_in_repair = false;
     if (g_api && g_mod) { char b[96]; snprintf(b, sizeof b, "kit: save clean-up returned %d", r); g_api->log(g_mod, b); }
     if (r == 0) g_repaired.store(true);
@@ -3935,7 +3952,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.77";
+    info.version          = "2.0.0-fh3.78";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
