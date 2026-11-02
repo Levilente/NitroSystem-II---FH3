@@ -2103,7 +2103,23 @@ static void* detour_select(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint6
     t_sel_new = false;
     return r;
 }
+static std::atomic<bool> g_new_pending{false};
+static std::atomic<long> g_pending_id{0};
+static void fh3_dump_vec(const char* what, uintptr_t rva);
+// The kit stage chosen in the shop (pending) and whether it is owned already (an equip, no charge) on this car.
+static bool fh3_kit_owned(long gid, int lvl) { return lvl == 0 || ((nu_owned_mask(gid) >> lvl) & 1); }
 static int detour_memcmp(const void* x, const void* y, size_t n) {
+    // Leaving the upgrade shop (0x16FABA0) asks "Modified car - install this setup?" only when the car's setup (0x16C bytes)
+    // differs from the one it came in with; a new-slot stage chosen in the shop counts as a difference too.
+    if (n == 0x16C && g_game_base && (uintptr_t)__builtin_return_address(0) == (uintptr_t)g_game_base + 0x16FAC40) {
+        const int r = g_orig_memcmp(x, y, n);
+        if (g_api && g_mod) {
+            char m[120]; snprintf(m, sizeof m, "exit check: setup %s, kit pending %d (part %ld)", r ? "changed" : "unchanged", (int)g_new_pending.load(), g_pending_id.load());
+            g_api->log(g_mod, m);
+            fh3_dump_vec("basket list 0x4D70228", 0x4D70228);
+        }
+        return r ? r : (g_new_pending.load() ? 1 : 0);
+    }
     if (t_sel_new && n == 0xB4) {
         t_sel_new = false;
         static std::atomic<int> lg{0};
@@ -2153,8 +2169,6 @@ static void install_basket_patch(uintptr_t base) {
 // FH3: leaving the shop asks "buy the basket?" only when the car's part set (0xB4 bytes = slots 0..42) differs from the
 // previewed one; a part of a new slot is no part of those bytes. A new-slot stage in the basket is remembered here and
 // counted as a difference until it is bought (the kit's install write) or swapped back to stock.
-static std::atomic<bool> g_new_pending{false};
-static std::atomic<long> g_pending_id{0};
 typedef int (*DiffFn)(const void*, const void*);
 static DiffFn g_orig_diff = nullptr;
 static int detour_diff(const void* a, const void* b) {
@@ -2168,14 +2182,20 @@ static void fh3_log_stack(const char* what);
 static void* detour_add(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
     fh3_hook_dbq();
     if (g_api && g_mod) { char m[100]; snprintf(m, sizeof m, "trace add to basket: part %d enum %d", (int)b, (int)c); g_api->log(g_mod, m); fh3_log_stack("  add"); }
-    if ((int)c > 42 && (int)b == NU_ID_BASE && nu_active_garage) {
-        // stock is always owned: switching back to it is an equip, not a purchase - no basket entry
-        nu_set_level((long)nu_active_garage, nu_cur_ord, 0);
-        g_new_pending.store(false);
-        if (g_api && g_mod) g_api->log(g_mod, "stock kit chosen: equipped directly, not added to the basket");
-        return nullptr;
+    if ((int)c > 42) {
+        const long id = (int)b;
+        const int lvl = (int)(id - NU_ID_BASE);
+        if (lvl >= 0 && lvl < NU_LEVELS) {
+            const long gid = (long)nu_active_garage;
+            g_pending_id.store(id);
+            g_new_pending.store(lvl != nu_cur_level);   // choosing the stage the car has is no change
+            if (fh3_kit_owned(gid, lvl)) {
+                // owned (stock always): installed with the setup ("Install setup" / the basket's buy), never bought again
+                if (g_api && g_mod) { char m[100]; snprintf(m, sizeof m, "kit stage %d chosen: owned, installs with the setup", lvl); g_api->log(g_mod, m); }
+                return nullptr;
+            }
+        }
     }
-    if ((int)c > 42) { const long id = (int)b; g_pending_id.store(id); g_new_pending.store(id > NU_ID_BASE && id < NU_ID_BASE + NU_LEVELS); }
     return g_orig_add(a, b, c, d, e, f, g, h, i, j, k, l);
 }
 
@@ -2308,6 +2328,7 @@ static bool fh3_kit_buy_guarded(void* sess, int gid, long pid) {
 }
 static void* detour_commit(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
     fh3_log_stack("shop commit");
+    if (g_api && g_mod && g_game_base) fh3_dump_vec("basket list 0x4D70228 at commit", 0x4D70228);
     if (g_api && g_mod && g_game_base) {
         char** v = (char**)((char*)g_game_base + 0x4D703A8);
         char* bgn = v[0]; char* end = v[1];
@@ -2325,7 +2346,10 @@ static void* detour_commit(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint6
         void* pg = *(void**)a;
         int gid = 0; void* sess = nullptr;
         if (pg) { sess = *(void**)((char*)pg + 0xac8); gid = ((int(*)(void*))((char*)g_game_base + 0x37AA10))(pg); }
-        if (pg && sess && gid > 0 && pid > NU_ID_BASE && pid < NU_ID_BASE + NU_LEVELS) {
+        if (pg && gid > 0 && pid >= NU_ID_BASE && pid < NU_ID_BASE + NU_LEVELS && fh3_kit_owned(gid, (int)(pid - NU_ID_BASE))) {
+            nu_set_level(gid, nu_cur_ord, (int)(pid - NU_ID_BASE));
+            if (g_api && g_mod) { char m[100]; snprintf(m, sizeof m, "kit stage %ld installed (owned, no charge) on garage %d", pid - NU_ID_BASE, gid); g_api->log(g_mod, m); }
+        } else if (pg && sess && gid > 0 && pid > NU_ID_BASE && pid < NU_ID_BASE + NU_LEVELS) {
             t_buy_extra = true;
             const bool ok = fh3_kit_buy_guarded(sess, gid, pid);
             t_buy_extra = false;
@@ -3902,7 +3926,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.75";
+    info.version          = "2.0.0-fh3.76";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
