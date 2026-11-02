@@ -2163,7 +2163,11 @@ static int detour_diff(const void* a, const void* b) {
 }
 typedef void* (*AddFn)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 static AddFn g_orig_add = nullptr;
+static void fh3_hook_dbq();
+static void fh3_log_stack(const char* what);
 static void* detour_add(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
+    fh3_hook_dbq();
+    if (g_api && g_mod) { char m[100]; snprintf(m, sizeof m, "trace add to basket: part %d enum %d", (int)b, (int)c); g_api->log(g_mod, m); fh3_log_stack("  add"); }
     if ((int)c > 42 && (int)b == NU_ID_BASE && nu_active_garage) {
         // stock is always owned: switching back to it is an equip, not a purchase - no basket entry
         nu_set_level((long)nu_active_garage, nu_cur_ord, 0);
@@ -2188,6 +2192,61 @@ static void* detour_buy(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t
 // Shop commit (0x4081A0): walks the basket vector (32-byte entries {enum, ?, index, partId, ..., +0x1c skip}) and runs the
 // purchase routine for each. Logged to see what the basket holds when the player confirms.
 static AddFn g_orig_commit = nullptr;
+// ---- purchase tracer (research): who prices, charges and opens the basket in the game's own flow ----
+static void fh3_log_stack(const char* what) {
+    if (!g_api || !g_mod || !g_game_base) return;
+    void* fr[24]; const USHORT n = RtlCaptureStackBackTrace(1, 24, fr, nullptr);
+    char m[600]; int o = snprintf(m, sizeof m, "%s stack:", what);
+    const uintptr_t gb = (uintptr_t)g_game_base;
+    for (USHORT i = 0; i < n && o < (int)sizeof m - 24; ++i) {
+        const uintptr_t x = (uintptr_t)fr[i];
+        if (x > gb && x < gb + 0x6000000) o += snprintf(m + o, sizeof m - o, " %llX", (unsigned long long)(x - gb));
+        else o += snprintf(m + o, sizeof m - o, " ext");
+    }
+    g_api->log(g_mod, m);
+}
+static const char* fh3_msvc_str(const void* s) {
+    if (!s) return "";
+    const uint64_t cap = *(const uint64_t*)((const char*)s + 0x18);
+    return cap >= 16 ? *(const char* const*)s : (const char*)s;
+}
+static AddFn g_orig_dbq = nullptr;
+static void* detour_dbq(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
+    void* r = g_orig_dbq(a, b, c, d, e, f, g, h, i, j, k, l);
+    if (g_api && g_mod) {
+        void* out = b ? *(void**)b : nullptr;
+        char m[400]; snprintf(m, sizeof m, "trace db query: \"%.300s\" -> %p", fh3_msvc_str((const void*)c), out);
+        g_api->log(g_mod, m);
+        fh3_log_stack("  db query");
+    }
+    return r;
+}
+static AddFn g_orig_credits = nullptr;
+static void* detour_credits(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
+    if (g_api && g_mod) {
+        char m[200]; const unsigned char* t = (const unsigned char*)c;
+        snprintf(m, sizeof m, "trace credits set: obj %p new %d info %02X %d %d %d %d %d", (void*)a, (int)b, t ? t[0] : 0, t ? *(const int*)(t + 4) : 0, t ? *(const int*)(t + 8) : 0, t ? *(const int*)(t + 12) : 0, t ? *(const int*)(t + 16) : 0, t ? *(const int*)(t + 20) : 0);
+        g_api->log(g_mod, m);
+        fh3_log_stack("  credits set");
+    }
+    return g_orig_credits(a, b, c, d, e, f, g, h, i, j, k, l);
+}
+static AddFn g_orig_basket_popup = nullptr;
+static void* detour_basket_popup(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
+    if (g_api && g_mod) { g_api->log(g_mod, "trace basket popup created"); fh3_log_stack("  basket popup"); }
+    return g_orig_basket_popup(a, b, c, d, e, f, g, h, i, j, k, l);
+}
+static std::atomic<bool> g_dbq_hooked{false};
+static void fh3_hook_dbq() {
+    if (g_dbq_hooked.exchange(true) || !g_game_base || !g_api || !g_mod) return;
+    void* mgr = *(void**)((char*)g_game_base + 0x4D6F198);
+    if (!mgr) { g_dbq_hooked.store(false); return; }
+    void* fn = (*(void***)mgr)[0x48 / 8];
+    char m[120]; snprintf(m, sizeof m, "trace: db manager query function at game+%llX", (unsigned long long)((uintptr_t)fn - (uintptr_t)g_game_base));
+    g_api->log(g_mod, m);
+    FH3Hook* h = g_api->hook_function(g_mod, "db query (trace)", fn, (void*)detour_dbq, (void**)&g_orig_dbq);
+    if (!(h && g_api->enable_hooks(g_mod, h))) g_orig_dbq = nullptr;
+}
 static bool fh3_kit_buy_guarded(void* sess, int gid, long pid) {
     bool ok = false;
     __try {
@@ -2199,6 +2258,7 @@ static bool fh3_kit_buy_guarded(void* sess, int gid, long pid) {
     return ok;
 }
 static void* detour_commit(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
+    fh3_log_stack("shop commit");
     if (g_api && g_mod && g_game_base) {
         char** v = (char**)((char*)g_game_base + 0x4D703A8);
         char* bgn = v[0]; char* end = v[1];
@@ -3363,6 +3423,10 @@ static void nitro_worker_thread() {
         if (!(h9 && g_api->enable_hooks(g_mod, h9))) g_orig_buy = nullptr;
         FH3Hook* h10 = g_api->hook_function(g_mod, "shop commit", (char*)base + 0x4081A0, (void*)detour_commit, (void**)&g_orig_commit);
         if (!(h10 && g_api->enable_hooks(g_mod, h10))) g_orig_commit = nullptr;
+        FH3Hook* h11 = g_api->hook_function(g_mod, "credits set (trace)", (char*)base + 0x337440, (void*)detour_credits, (void**)&g_orig_credits);
+        if (!(h11 && g_api->enable_hooks(g_mod, h11))) g_orig_credits = nullptr;
+        FH3Hook* h12 = g_api->hook_function(g_mod, "basket popup ctor (trace)", (char*)base + 0x16C26C0, (void*)detour_basket_popup, (void**)&g_orig_basket_popup);
+        if (!(h12 && g_api->enable_hooks(g_mod, h12))) g_orig_basket_popup = nullptr;
         install_basket_patch((uintptr_t)base);
         FH3Hook* h5 = g_api->hook_function(g_mod, "A handler", (char*)base + 0x16DC050, (void*)detour_select, (void**)&g_orig_select);
         if (!(h5 && g_api->enable_hooks(g_mod, h5))) g_orig_select = nullptr;
@@ -3755,7 +3819,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.69";
+    info.version          = "2.0.0-fh3.70";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
