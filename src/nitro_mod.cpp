@@ -2077,10 +2077,12 @@ static void* detour_qb(uint64_t a, uint64_t e, uint64_t c, uint64_t d, uint64_t 
 typedef void* (*TraceFn)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 static TraceFn g_tr_orig[8] = {};
 static std::atomic<int> g_tr_n[8] = {};
-static const char* const k_tr_name[8] = {"0x36D360", "0x4081A0", "0x3816F0", "0x38D0B0", "0x38BCD0", "BasketItem ctor", "0x3727A0", "0x37D670"};
+static const char* const k_tr_name[8] = {"0x36D360", "0x16FAEF0", "0x16DC050", "0x38D0B0", "0x16CC5B0", "BasketItem ctor", "0x1419EA220", "0x1419EA240"};
 template <int I> static void* trace_detour(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
     if (g_tr_n[I].fetch_add(1) < 25 && g_api && g_mod) {
-        char m[160]; snprintf(m, sizeof m, "trace %s: edx=%d r8d=%d r9d=%d", k_tr_name[I], (int)b, (int)c, (int)d);
+        int ty = -99;
+        if (I == 1 || I == 2) { const char* o = (const char*)a; if (readable_ptr(o + 0x5f0, 4)) ty = *(const int*)(o + 0x5f0); }
+        char m[160]; snprintf(m, sizeof m, "trace %s: edx=%d r8d=%d r9d=%d type@5f0=%d", k_tr_name[I], (int)b, (int)c, (int)d, ty);
         g_api->log(g_mod, m);
     }
     return g_tr_orig[I](a, b, c, d, e, f, g, h, i, j, k, l);
@@ -3197,7 +3199,7 @@ static void nitro_worker_thread() {
         FH3Hook* h2 = g_api->hook_function(g_mod, "enum->list", (char*)base + 0x19D9820, (void*)detour_enum_list, (void**)&g_orig_enum_list);
         if (!(h2 && g_api->enable_hooks(g_mod, h2))) g_orig_enum_list = nullptr;
     {
-        static const uintptr_t rvas[8] = {0x36D360, 0x4081A0, 0x3816F0, 0x38D0B0, 0x38BCD0, 0x1285E20, 0x3727A0, 0x37D670};
+        static const uintptr_t rvas[8] = {0x36D360, 0x16FAEF0, 0x16DC050, 0x38D0B0, 0x16CC5B0, 0x1285E20, 0x19EA220, 0x19EA240};
         static void* const dets[8] = {(void*)trace_detour<0>, (void*)trace_detour<1>, (void*)trace_detour<2>, (void*)trace_detour<3>, (void*)trace_detour<4>, (void*)trace_detour<5>, (void*)trace_detour<6>, (void*)trace_detour<7>};
         for (int i = 0; i < 8; ++i) {
             FH3Hook* h = g_api->hook_function(g_mod, k_tr_name[i], (char*)base + rvas[i], dets[i], (void**)&g_tr_orig[i]);
@@ -3591,7 +3593,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.61";
+    info.version          = "2.0.0-fh3.62";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
