@@ -2336,6 +2336,31 @@ static void* detour_commit(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint6
     void* ret = g_orig_commit(a, b, c, d, e, f, g, h, i, j, k, l);
     return ret;
 }
+// trace: the purchase list builder (0x4194A0): compares the basket list (0x4D70228) with the car's part set and fills the purchase
+// vector (0x4D703A8) the shop commit and the exit prompt use.
+static void fh3_dump_vec(const char* what, uintptr_t rva) {
+    char** v = (char**)((char*)g_game_base + rva);
+    char* bgn = v[0]; char* end = v[1];
+    char m[200]; snprintf(m, sizeof m, "  %s: %d entries", what, (bgn && end >= bgn) ? (int)((end - bgn) / 32) : -1);
+    g_api->log(g_mod, m);
+    for (char* q = bgn; q && q < end && (q - bgn) < 32 * 24; q += 32) {
+        snprintf(m, sizeof m, "    enum=%d +4=%d +8=%d part=%d +10=%d +14=%d +18=%d +1c=%d", *(int*)q, *(int*)(q + 4), *(int*)(q + 8), *(int*)(q + 12), *(int*)(q + 16), *(int*)(q + 20), *(int*)(q + 24), *(int*)(q + 28));
+        g_api->log(g_mod, m);
+    }
+}
+static AddFn g_orig_plist = nullptr;
+static void* detour_plist(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
+    void* r = g_orig_plist(a, b, c, d, e, f, g, h, i, j, k, l);
+    if (g_api && g_mod && g_game_base) {
+        char m[160]; snprintf(m, sizeof m, "trace purchase list built (config %p, config[47 slot]=%d)", (void*)a, a ? *(int*)((char*)a + 8 + 47 * 4) : 0);
+        g_api->log(g_mod, m);
+        fh3_log_stack("  purchase list");
+        fh3_dump_vec("basket list 0x4D70228", 0x4D70228);
+        fh3_dump_vec("other list 0x4D702E8", 0x4D702E8);
+        fh3_dump_vec("purchase vector 0x4D703A8", 0x4D703A8);
+    }
+    return r;
+}
 static std::atomic<uint64_t> g_kit_tick{0};
 typedef int (*FH3ExecFn)(void*, const char*, void*, void*, char**);
 static std::atomic<int> g_repair_tries{0};
@@ -3483,6 +3508,8 @@ static void nitro_worker_thread() {
         if (!(h11 && g_api->enable_hooks(g_mod, h11))) g_orig_credits = nullptr;
         FH3Hook* h12 = g_api->hook_function(g_mod, "basket popup ctor (trace)", (char*)base + 0x16C26C0, (void*)detour_basket_popup, (void**)&g_orig_basket_popup);
         if (!(h12 && g_api->enable_hooks(g_mod, h12))) g_orig_basket_popup = nullptr;
+        FH3Hook* h13 = g_api->hook_function(g_mod, "purchase list (trace)", (char*)base + 0x4194A0, (void*)detour_plist, (void**)&g_orig_plist);
+        if (!(h13 && g_api->enable_hooks(g_mod, h13))) g_orig_plist = nullptr;
         install_basket_patch((uintptr_t)base);
         FH3Hook* h5 = g_api->hook_function(g_mod, "A handler", (char*)base + 0x16DC050, (void*)detour_select, (void**)&g_orig_select);
         if (!(h5 && g_api->enable_hooks(g_mod, h5))) g_orig_select = nullptr;
@@ -3875,7 +3902,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.74";
+    info.version          = "2.0.0-fh3.75";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
