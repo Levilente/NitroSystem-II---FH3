@@ -2149,6 +2149,23 @@ static void install_basket_patch(uintptr_t base) {
     FlushInstructionCache(GetCurrentProcess(), site, 6);
     if (g_api && g_mod) g_api->log(g_mod, "basket patch installed (new-slot parts count as a change in the add step)");
 }
+
+// FH3: leaving the shop asks "buy the basket?" only when the car's part set (0xB4 bytes = slots 0..42) differs from the
+// previewed one; a part of a new slot is no part of those bytes. A new-slot stage in the basket is remembered here and
+// counted as a difference until it is bought (the kit's install write) or swapped back to stock.
+static std::atomic<bool> g_new_pending{false};
+typedef int (*DiffFn)(const void*, const void*);
+static DiffFn g_orig_diff = nullptr;
+static int detour_diff(const void* a, const void* b) {
+    int r = g_orig_diff(a, b);
+    return (r & 0xFF) ? r : (g_new_pending.load() ? 1 : r);
+}
+typedef void* (*AddFn)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+static AddFn g_orig_add = nullptr;
+static void* detour_add(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
+    if ((int)c > 42) { const long id = (int)b; g_new_pending.store(id > NU_ID_BASE && id < NU_ID_BASE + NU_LEVELS); }
+    return g_orig_add(a, b, c, d, e, f, g, h, i, j, k, l);
+}
 static std::atomic<uint64_t> g_kit_tick{0};
 typedef int (*FH3ExecFn)(void*, const char*, void*, void*, char**);
 static std::atomic<int> g_repair_tries{0};
@@ -2241,6 +2258,7 @@ static bool fh3_rewrite_kit_impl(const char* z, size_t len, std::string& out) {
         if (!ours) return false;
         const char* w = strstr(z, " WHERE Id=");
         long gid = w ? atol(w + 10) : 0;
+        g_new_pending.store(false);
         if (gid > 0) { nu_set_level(gid, nu_cur_ord, (int)(id - NU_ID_BASE)); if ((unsigned)gid != nu_active_garage && !g_force_stage) { nu_activate((unsigned)gid); fh3_save_last_garage((unsigned)gid); } }
         // The game writes its whole idea of the car's parts (our id in the kit's column and whatever it clears because
         // of it). The kit is no engine part: nothing of that may reach the car. Only the stage is kept, above.
@@ -3261,13 +3279,18 @@ static void nitro_worker_thread() {
         FH3Hook* h2 = g_api->hook_function(g_mod, "enum->list", (char*)base + 0x19D9820, (void*)detour_enum_list, (void**)&g_orig_enum_list);
         if (!(h2 && g_api->enable_hooks(g_mod, h2))) g_orig_enum_list = nullptr;
     {
-        static const uintptr_t rvas[8] = {0x36D360, 0x16FAEF0, 0x38BCD0, 0x38D0B0, 0x16CC5B0, 0x1285E20, 0x19EA220, 0x19EA240};
+        static const uintptr_t rvas[8] = {0x36D360, 0, 0x38BCD0, 0x38D0B0, 0x16CC5B0, 0x1285E20, 0x19EA220, 0x19EA240};
         static void* const dets[8] = {(void*)trace_detour<0>, (void*)trace_detour<1>, (void*)trace_detour<2>, (void*)trace_detour<3>, (void*)trace_detour<4>, (void*)trace_detour<5>, (void*)trace_detour<6>, (void*)trace_detour<7>};
         for (int i = 0; i < 8; ++i) {
+            if (!rvas[i]) continue;
             FH3Hook* h = g_api->hook_function(g_mod, k_tr_name[i], (char*)base + rvas[i], dets[i], (void**)&g_tr_orig[i]);
             if (!(h && g_api->enable_hooks(g_mod, h))) g_tr_orig[i] = nullptr;
         }
     }
+        FH3Hook* h7 = g_api->hook_function(g_mod, "part add step", (char*)base + 0x16FAEF0, (void*)detour_add, (void**)&g_orig_add);
+        if (!(h7 && g_api->enable_hooks(g_mod, h7))) g_orig_add = nullptr;
+        FH3Hook* h8 = g_api->hook_function(g_mod, "parts differ?", (char*)base + 0x19CDBB0, (void*)detour_diff, (void**)&g_orig_diff);
+        if (!(h8 && g_api->enable_hooks(g_mod, h8))) g_orig_diff = nullptr;
         install_basket_patch((uintptr_t)base);
         FH3Hook* h5 = g_api->hook_function(g_mod, "A handler", (char*)base + 0x16DC050, (void*)detour_select, (void**)&g_orig_select);
         if (!(h5 && g_api->enable_hooks(g_mod, h5))) g_orig_select = nullptr;
@@ -3660,7 +3683,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.64";
+    info.version          = "2.0.0-fh3.65";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
