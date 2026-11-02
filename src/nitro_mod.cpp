@@ -2097,7 +2097,8 @@ static bool fh3_rewrite_kit(const char* z, size_t len, std::string& out) {
     }
     if (len > 40 && z[0] == 'U' && strncmp(z, "UPDATE Profile0_Career_Garage SET QuadTurbo = 9004", 50) == 0) g_kit_tick.store(GetTickCount64());
     if (len > 40 && z[0] == 'U' && strncmp(z, "UPDATE Profile0_Career_Garage SET AspirationTypeId=4 WHERE Id=", 62) == 0 && GetTickCount64() - g_kit_tick.load() < 5000) {
-        out = std::string(z, 53) + std::to_string(g_last_asp.load()) + (z + 54);
+        // the kit install left the car's aspiration alone (see below), so this write only has to change nothing
+        out = std::string("UPDATE Profile0_Career_Garage SET AspirationTypeId=AspirationTypeId") + strstr(z, " WHERE Id=");
         return true;
     }
     if (len > 60 && z[0] == 'U' && strncmp(z, "UPDATE Profile0_Career_Garage SET", 33) == 0) {
@@ -2110,15 +2111,10 @@ static bool fh3_rewrite_kit(const char* z, size_t len, std::string& out) {
         const char* w = strstr(z, " WHERE Id=");
         long gid = w ? atol(w + 10) : 0;
         if (gid > 0) { nu_set_level(gid, nu_cur_ord, (int)(id - NU_ID_BASE)); if ((unsigned)gid != nu_active_garage && !g_force_stage) { nu_activate((unsigned)gid); fh3_save_last_garage((unsigned)gid); } }
-        std::string r(z, (size_t)(q - z));
-        r += "QuadTurbo=-1";
-        const char* rest = q + 10; while (*rest == '-' || (*rest >= '0' && *rest <= '9')) ++rest;
-        if (asp && asp > rest) {
-            r.append(rest, (size_t)(asp - rest));
-            r += "AspirationTypeId=" + std::to_string(g_last_asp.load());
-            const char* r2 = asp + 17; while (*r2 >= '0' && *r2 <= '9') ++r2;
-            r += r2;
-        } else r += rest;
+        // The game writes its whole idea of the car's engine parts (QuadTurbo=<id>, AspirationTypeId=4, and whatever it
+        // clears because a quad turbo excludes the other induction parts). The kit is no engine part: nothing of that
+        // may reach the car (a twin-turbo R34 turned into a naturally aspirated one). Only the stage is kept, above.
+        std::string r = "UPDATE Profile0_Career_Garage SET QuadTurbo=QuadTurbo WHERE Id=" + std::to_string(gid);
         out = r;
         static std::atomic<int> logged{0};
         if (logged.fetch_add(1) < 6 && g_api && g_mod) { char b[96]; snprintf(b, sizeof b, "kit: installed stage %ld on garage %ld", id - NU_ID_BASE, gid); g_api->log(g_mod, b); }
@@ -3510,7 +3506,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.54";
+    info.version          = "2.0.0-fh3.55";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
