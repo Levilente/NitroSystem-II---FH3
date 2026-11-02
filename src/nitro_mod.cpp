@@ -2044,6 +2044,18 @@ static void fh3_kit_sql(std::string& out) {
 
 
 
+
+// FH3 research (KitEnum>42): who asks the part-table helpers about an enum above the table (0..42)?
+typedef void* (*EnumHelperFn)(int);
+static EnumHelperFn g_orig_enum_col = nullptr, g_orig_enum_list = nullptr;
+static std::atomic<int> g_enum_log{0};
+static void enum_helper_log(const char* which, int e, void* ret) {
+    if (e <= 42 || g_enum_log.fetch_add(1) >= 60 || !g_api || !g_mod || !g_game_base) return;
+    char b[160]; snprintf(b, sizeof b, "enum helper %s(%d) from game+0x%llX", which, e, (unsigned long long)((uintptr_t)ret - (uintptr_t)g_game_base));
+    g_api->log(g_mod, b);
+}
+static void* detour_enum_col(int e) { enum_helper_log("column", e, __builtin_return_address(0)); return g_orig_enum_col(e); }
+static void* detour_enum_list(int e) { enum_helper_log("list", e, __builtin_return_address(0)); return g_orig_enum_list(e); }
 static std::atomic<uint64_t> g_kit_tick{0};
 typedef int (*FH3ExecFn)(void*, const char*, void*, void*, char**);
 static std::atomic<int> g_repair_tries{0};
@@ -3150,6 +3162,12 @@ static void nitro_worker_thread() {
         g_api->log(g_mod, cm);
     }
 
+    if (NU_ENUM > 42) {
+        FH3Hook* h1 = g_api->hook_function(g_mod, "enum->column", (char*)base + 0x19D97E0, (void*)detour_enum_col, (void**)&g_orig_enum_col);
+        if (!(h1 && g_api->enable_hooks(g_mod, h1))) g_orig_enum_col = nullptr;
+        FH3Hook* h2 = g_api->hook_function(g_mod, "enum->list", (char*)base + 0x19D9820, (void*)detour_enum_list, (void**)&g_orig_enum_list);
+        if (!(h2 && g_api->enable_hooks(g_mod, h2))) g_orig_enum_list = nullptr;
+    }
     void* mgr_update = (void*)((uintptr_t)base + kFH3WorldUpdate);
     FH3Hook* hook_mgr = g_api->hook_function(g_mod, "CWorldCollObjMan::Update", mgr_update, (void*)detour_mgr_update, (void**)&g_orig_mgr_update);
     g_api->log(g_mod, hook_mgr && g_api->enable_hooks(g_mod, hook_mgr) ? "CWorldCollObjMan::Update hooked to find the player's car."
@@ -3532,7 +3550,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.58";
+    info.version          = "2.0.0-fh3.59";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
