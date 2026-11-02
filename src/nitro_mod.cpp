@@ -2154,6 +2154,7 @@ static void install_basket_patch(uintptr_t base) {
 // previewed one; a part of a new slot is no part of those bytes. A new-slot stage in the basket is remembered here and
 // counted as a difference until it is bought (the kit's install write) or swapped back to stock.
 static std::atomic<bool> g_new_pending{false};
+static std::atomic<long> g_pending_id{0};
 typedef int (*DiffFn)(const void*, const void*);
 static DiffFn g_orig_diff = nullptr;
 static int detour_diff(const void* a, const void* b) {
@@ -2163,8 +2164,31 @@ static int detour_diff(const void* a, const void* b) {
 typedef void* (*AddFn)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 static AddFn g_orig_add = nullptr;
 static void* detour_add(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
-    if ((int)c > 42) { const long id = (int)b; g_new_pending.store(id > NU_ID_BASE && id < NU_ID_BASE + NU_LEVELS); }
+    if ((int)c > 42) { const long id = (int)b; g_pending_id.store(id); g_new_pending.store(id > NU_ID_BASE && id < NU_ID_BASE + NU_LEVELS); }
     return g_orig_add(a, b, c, d, e, f, g, h, i, j, k, l);
+}
+
+// FH3: the game's own purchase routine (0x36D360: price query, credits check + charge, PurchasedParts row) is run by the
+// shop's commit for the slots 0..42 only. When a new-slot stage waits in the basket, the routine is called once more for it
+// (same arguments, our enum and part id), and the stage is set on the car when it succeeded.
+static AddFn g_orig_buy = nullptr;
+static thread_local bool t_buy_extra = false;
+static void* detour_buy(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
+    void* r = g_orig_buy(a, b, c, d, e, f, g, h, i, j, k, l);
+    if (!t_buy_extra && g_new_pending.load() && (int)c <= 42 && (int)c >= 0) {
+        t_buy_extra = true;
+        const long pid = g_pending_id.load();
+        g_new_pending.store(false);
+        void* r2 = g_orig_buy(a, b, (uint64_t)NU_ENUM, (uint64_t)pid, e, f, g, h, i, j, k, l);
+        t_buy_extra = false;
+        const bool ok = ((uintptr_t)r2 & 0xFF) != 0;
+        if (ok) {
+            const long gid = (int)b;
+            if (gid > 0) { nu_set_level(gid, nu_cur_ord, (int)(pid - NU_ID_BASE)); if ((unsigned)gid != nu_active_garage && !g_force_stage) { nu_activate((unsigned)gid); fh3_save_last_garage((unsigned)gid); } }
+        }
+        if (g_api && g_mod) { char m[120]; snprintf(m, sizeof m, "kit purchase: part %ld on garage %d -> %s", pid, (int)b, ok ? "bought, stage set" : "refused (credits?)"); g_api->log(g_mod, m); }
+    }
+    return r;
 }
 static std::atomic<uint64_t> g_kit_tick{0};
 typedef int (*FH3ExecFn)(void*, const char*, void*, void*, char**);
@@ -2232,6 +2256,12 @@ static bool fh3_rewrite_kit_impl(const char* z, size_t len, std::string& out) {
                 return true;
             }
         }
+        return false;
+    }
+    const std::string pp = std::string("SELECT Price FROM ") + kit_list() + " WHERE Id = ";
+    if (len > 30 && z[0] == 'S' && strncmp(z, pp.c_str(), pp.size()) == 0) {
+        long id = atol(z + pp.size());
+        if (id >= NU_ID_BASE && id < NU_ID_BASE + NU_LEVELS) { out = "SELECT " + std::to_string(id == NU_ID_BASE ? 0L : nu_cfg.price[id - NU_ID_BASE]) + " AS Price"; return true; }
         return false;
     }
     const std::string pl = std::string("SELECT Level FROM ") + kit_list() + " WHERE " + kit_owner() + "=";
@@ -3279,7 +3309,7 @@ static void nitro_worker_thread() {
         FH3Hook* h2 = g_api->hook_function(g_mod, "enum->list", (char*)base + 0x19D9820, (void*)detour_enum_list, (void**)&g_orig_enum_list);
         if (!(h2 && g_api->enable_hooks(g_mod, h2))) g_orig_enum_list = nullptr;
     {
-        static const uintptr_t rvas[8] = {0x36D360, 0, 0x38BCD0, 0x38D0B0, 0x16CC5B0, 0x1285E20, 0x19EA220, 0x19EA240};
+        static const uintptr_t rvas[8] = {0, 0, 0x38BCD0, 0x38D0B0, 0x16CC5B0, 0x1285E20, 0x19EA220, 0x19EA240};
         static void* const dets[8] = {(void*)trace_detour<0>, (void*)trace_detour<1>, (void*)trace_detour<2>, (void*)trace_detour<3>, (void*)trace_detour<4>, (void*)trace_detour<5>, (void*)trace_detour<6>, (void*)trace_detour<7>};
         for (int i = 0; i < 8; ++i) {
             if (!rvas[i]) continue;
@@ -3291,6 +3321,8 @@ static void nitro_worker_thread() {
         if (!(h7 && g_api->enable_hooks(g_mod, h7))) g_orig_add = nullptr;
         FH3Hook* h8 = g_api->hook_function(g_mod, "parts differ?", (char*)base + 0x19CDBB0, (void*)detour_diff, (void**)&g_orig_diff);
         if (!(h8 && g_api->enable_hooks(g_mod, h8))) g_orig_diff = nullptr;
+        FH3Hook* h9 = g_api->hook_function(g_mod, "part purchase", (char*)base + 0x36D360, (void*)detour_buy, (void**)&g_orig_buy);
+        if (!(h9 && g_api->enable_hooks(g_mod, h9))) g_orig_buy = nullptr;
         install_basket_patch((uintptr_t)base);
         FH3Hook* h5 = g_api->hook_function(g_mod, "A handler", (char*)base + 0x16DC050, (void*)detour_select, (void**)&g_orig_select);
         if (!(h5 && g_api->enable_hooks(g_mod, h5))) g_orig_select = nullptr;
@@ -3683,7 +3715,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.65";
+    info.version          = "2.0.0-fh3.66";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
