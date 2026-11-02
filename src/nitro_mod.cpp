@@ -2271,6 +2271,7 @@ static bool fh3_kit_buy_guarded(void* sess, int gid, long pid) {
         ok = ((uintptr_t)r2 & 0xFF) != 0;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         ok = false;
+        if (g_api && g_mod) g_api->log(g_mod, "kit purchase: the game's purchase routine faulted (caught)");
     }
     return ok;
 }
@@ -2464,6 +2465,13 @@ static int detour_prepare(void* db, const char* z, int n, unsigned fl, void* old
         if (z[0] == 'S' && strncmp(z, "SELECT PartTable.PartId AS id", 29) == 0) { long g2 = -1; if (nu_partlist_enum(z, len, &g2) && g2 > 0) fh3_ensure_owned(db, g2); }
         std::string kitq;
         const char* use = fh3_rewrite_kit(z, len, kitq) ? kitq.c_str() : nu_rewrite(z, len);
+        if (len > 18 && z[0] == 'S' && strncmp(z, "SELECT Price FROM ", 18) == 0 && g_api && g_mod) {   // trace: the purchase's price query
+            int r = fh3_prep(db, use, use == z ? n : -1, fl, old, pp, tail);
+            if (use != z && tail) *tail = z + len;
+            char m[300]; snprintf(m, sizeof m, "trace price query: \"%.*s\" -> \"%.80s\" rc=%d stmt=%p", (int)(len < 120 ? len : 120), z, use, r, pp ? *pp : nullptr);
+            g_api->log(g_mod, m);
+            return r;
+        }
         if (use != z) {
             if (z[0] == 'U' || strncmp(z, "SELECT PartTable", 16) == 0) {
                 long gid = 0; const char* g = strstr(z, "GarageId = "); if (!g) { g = strstr(z, "WHERE Id = "); if (g) gid = atol(g + 11); } else gid = atol(g + 11);
@@ -3836,7 +3844,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.71";
+    info.version          = "2.0.0-fh3.72";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
