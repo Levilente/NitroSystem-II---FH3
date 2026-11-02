@@ -2076,7 +2076,7 @@ static bool fh3_rewrite_kit_impl(const char* z, size_t len, std::string& out);
 // (List_UpgradeMotorParts / MotorParts). They are the same statements as the Quad Turbo ones, so they get the same
 // answers: only the names are mapped back.
 static bool fh3_rewrite_kit(const char* z, size_t len, std::string& out) {
-    if (NU_ENUM != 26 && len > 30 && (strstr(z, "MotorParts") != nullptr) && strstr(z, "9004") != nullptr) {
+    if (NU_ENUM != 26 && NU_ENUM != 42 && len > 30 && (strstr(z, "MotorParts") != nullptr) && strstr(z, "9004") != nullptr) {
         std::string t(z, len);
         for (const auto& rp : {std::pair<const char*, const char*>{"List_UpgradeMotorParts", "List_UpgradeEngineTurboQuad"}, {"MotorParts", "QuadTurbo"}}) {
             size_t at = 0;
@@ -2088,9 +2088,14 @@ static bool fh3_rewrite_kit(const char* z, size_t len, std::string& out) {
     }
     return fh3_rewrite_kit_impl(z, len, out);
 }
+// The slot the kit lives in: 26 = Quad Turbo column, 42 = MotorParts (a column no car of the game uses).
+static const char* kit_col() { return NU_ENUM == 42 ? "MotorParts" : "QuadTurbo"; }
+static const char* kit_list() { return NU_ENUM == 42 ? "List_UpgradeMotorParts" : "List_UpgradeEngineTurboQuad"; }
+static const char* kit_owner() { return NU_ENUM == 42 ? "MotorID" : "EngineId"; }
 static bool fh3_rewrite_kit_impl(const char* z, size_t len, std::string& out) {
-    if (len > 40 && z[0] == 'S' && strncmp(z, "SELECT ManufacturerID FROM List_UpgradeEngineTurboQuad WHERE Id=", 64) == 0) {
-        long id = atol(z + 64);
+    const std::string pm = std::string("SELECT ManufacturerID FROM ") + kit_list() + " WHERE Id=";
+    if (len > 40 && z[0] == 'S' && strncmp(z, pm.c_str(), pm.size()) == 0) {
+        long id = atol(z + pm.size());
         if (id >= NU_ID_BASE && id < NU_ID_BASE + NU_LEVELS) { out = "SELECT -1 AS ManufacturerID"; return true; }
         return false;
     }
@@ -2107,13 +2112,15 @@ static bool fh3_rewrite_kit_impl(const char* z, size_t len, std::string& out) {
         }
         return false;
     }
-    if (len > 40 && z[0] == 'S' && strncmp(z, "SELECT Level FROM List_UpgradeEngineTurboQuad WHERE EngineId=", 61) == 0) {
+    const std::string pl = std::string("SELECT Level FROM ") + kit_list() + " WHERE " + kit_owner() + "=";
+    if (len > 40 && z[0] == 'S' && strncmp(z, pl.c_str(), pl.size()) == 0) {
         const char* p = strstr(z, " AND Id=");
         long id = p ? atol(p + 8) : 0;
         if (id >= NU_ID_BASE && id < NU_ID_BASE + NU_LEVELS) { out = "SELECT " + std::to_string(id - NU_ID_BASE) + " AS Level"; return true; }
         return false;
     }
-    if (len > 40 && z[0] == 'U' && strncmp(z, "UPDATE Profile0_Career_Garage SET QuadTurbo = 9004", 50) == 0) g_kit_tick.store(GetTickCount64());
+    const std::string pu = std::string("UPDATE Profile0_Career_Garage SET ") + kit_col() + " = 9004";
+    if (len > 40 && z[0] == 'U' && strncmp(z, pu.c_str(), pu.size()) == 0) g_kit_tick.store(GetTickCount64());
     if (len > 40 && z[0] == 'U' && strncmp(z, "UPDATE Profile0_Career_Garage SET AspirationTypeId=4 WHERE Id=", 62) == 0 && GetTickCount64() - g_kit_tick.load() < 5000) {
         // the kit install left the car's aspiration alone (see below), so this write only has to change nothing
         out = std::string("UPDATE Profile0_Career_Garage SET AspirationTypeId=AspirationTypeId") + strstr(z, " WHERE Id=");
@@ -2121,18 +2128,18 @@ static bool fh3_rewrite_kit_impl(const char* z, size_t len, std::string& out) {
     }
     if (len > 60 && z[0] == 'U' && strncmp(z, "UPDATE Profile0_Career_Garage SET", 33) == 0) {
         const char* asp = strstr(z, "AspirationTypeId=");
-        const char* q = strstr(z, "QuadTurbo=");
-        long id = q ? atol(q + 10) : 0;
+        const std::string kc = std::string(kit_col()) + "=";
+        const char* q = strstr(z, kc.c_str());
+        long id = q ? atol(q + kc.size()) : 0;
         const bool ours = id >= NU_ID_BASE && id < NU_ID_BASE + NU_LEVELS;
         if (asp && !ours) { long v = atol(asp + 17); if (v > 0 && (v != 4 || id > 0)) g_last_asp.store(v); }   // 4 (quad) only counts with a real quad turbo id
         if (!ours) return false;
         const char* w = strstr(z, " WHERE Id=");
         long gid = w ? atol(w + 10) : 0;
         if (gid > 0) { nu_set_level(gid, nu_cur_ord, (int)(id - NU_ID_BASE)); if ((unsigned)gid != nu_active_garage && !g_force_stage) { nu_activate((unsigned)gid); fh3_save_last_garage((unsigned)gid); } }
-        // The game writes its whole idea of the car's engine parts (QuadTurbo=<id>, AspirationTypeId=4, and whatever it
-        // clears because a quad turbo excludes the other induction parts). The kit is no engine part: nothing of that
-        // may reach the car (a twin-turbo R34 turned into a naturally aspirated one). Only the stage is kept, above.
-        std::string r = "UPDATE Profile0_Career_Garage SET QuadTurbo=QuadTurbo WHERE Id=" + std::to_string(gid);
+        // The game writes its whole idea of the car's parts (our id in the kit's column and whatever it clears because
+        // of it). The kit is no engine part: nothing of that may reach the car. Only the stage is kept, above.
+        std::string r = std::string("UPDATE Profile0_Career_Garage SET ") + kit_col() + "=" + kit_col() + " WHERE Id=" + std::to_string(gid);
         out = r;
         static std::atomic<int> logged{0};
         if (logged.fetch_add(1) < 6 && g_api && g_mod) { char b[96]; snprintf(b, sizeof b, "kit: installed stage %ld on garage %ld", id - NU_ID_BASE, gid); g_api->log(g_mod, b); }
@@ -2150,6 +2157,7 @@ static void fh3_repair_save(void* db, const char* z) {
     t_in_repair = true;
     FH3ExecFn ex = (FH3ExecFn)((uintptr_t)g_game_base + 0x421D0);
     int r = ex(db, "UPDATE Profile0_Career_Garage SET QuadTurbo=-1, AspirationTypeId=1 WHERE QuadTurbo BETWEEN 900470 AND 900473", nullptr, nullptr, nullptr);
+    ex(db, "UPDATE Profile0_Career_Garage SET MotorParts=-1 WHERE MotorParts BETWEEN 900470 AND 900473", nullptr, nullptr, nullptr);
     if (r == 0) ex(db, "UPDATE Profile0_Career_Garage SET AspirationTypeId=1 WHERE AspirationTypeId=4 AND QuadTurbo<0", nullptr, nullptr, nullptr);
     t_in_repair = false;
     if (g_api && g_mod) { char b[96]; snprintf(b, sizeof b, "kit: save clean-up returned %d", r); g_api->log(g_mod, b); }
@@ -3524,7 +3532,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.57";
+    info.version          = "2.0.0-fh3.58";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
