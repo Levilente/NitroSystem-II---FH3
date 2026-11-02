@@ -2188,6 +2188,16 @@ static void* detour_buy(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t
 // Shop commit (0x4081A0): walks the basket vector (32-byte entries {enum, ?, index, partId, ..., +0x1c skip}) and runs the
 // purchase routine for each. Logged to see what the basket holds when the player confirms.
 static AddFn g_orig_commit = nullptr;
+static bool fh3_kit_buy_guarded(void* sess, int gid, long pid) {
+    bool ok = false;
+    __try {
+        void* r2 = g_orig_buy((uint64_t)sess, (uint64_t)gid, 26, (uint64_t)pid, 0xFFFFFFFFull, 0, 0, 1, 0, 0, 0, 0);
+        ok = ((uintptr_t)r2 & 0xFF) != 0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        ok = false;
+    }
+    return ok;
+}
 static void* detour_commit(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
     if (g_api && g_mod && g_game_base) {
         char** v = (char**)((char*)g_game_base + 0x4D703A8);
@@ -2199,7 +2209,6 @@ static void* detour_commit(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint6
             g_api->log(g_mod, m);
         }
     }
-    void* ret = g_orig_commit(a, b, c, d, e, f, g, h, i, j, k, l);
     // A new-slot stage waiting in the basket: the game's purchase routine is run for it with a real slot (the Quad Turbo type,
     // whose price query and part rows are answered by the SQL layer for our part ids), then the stage is set on the car.
     if (g_new_pending.exchange(false) && g_game_base && a && !(b & 0xFF)) {
@@ -2209,13 +2218,13 @@ static void* detour_commit(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint6
         if (pg) { sess = *(void**)((char*)pg + 0xac8); gid = ((int(*)(void*))((char*)g_game_base + 0x37AA10))(pg); }
         if (pg && sess && gid > 0 && pid > NU_ID_BASE && pid < NU_ID_BASE + NU_LEVELS) {
             t_buy_extra = true;
-            void* r2 = g_orig_buy((uint64_t)sess, (uint64_t)gid, 26, (uint64_t)pid, 0xFFFFFFFFull, 0, 0, 1, 0, 0, 0, 0);
+            const bool ok = fh3_kit_buy_guarded(sess, gid, pid);
             t_buy_extra = false;
-            const bool ok = ((uintptr_t)r2 & 0xFF) != 0;
             if (ok) { nu_set_level(gid, nu_cur_ord, (int)(pid - NU_ID_BASE)); if ((unsigned)gid != nu_active_garage && !g_force_stage) { nu_activate((unsigned)gid); fh3_save_last_garage((unsigned)gid); } }
             if (g_api && g_mod) { char m[120]; snprintf(m, sizeof m, "kit purchase: part %ld on garage %d -> %s", pid, gid, ok ? "bought, stage set" : "refused (credits?)"); g_api->log(g_mod, m); }
         }
     }
+    void* ret = g_orig_commit(a, b, c, d, e, f, g, h, i, j, k, l);
     return ret;
 }
 static std::atomic<uint64_t> g_kit_tick{0};
@@ -3746,7 +3755,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.68";
+    info.version          = "2.0.0-fh3.69";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
