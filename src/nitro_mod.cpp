@@ -2183,19 +2183,6 @@ static thread_local bool t_buy_extra = false;
 static void* detour_buy(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
     void* r = g_orig_buy(a, b, c, d, e, f, g, h, i, j, k, l);
     if (g_api && g_mod && !t_buy_extra) { char m[120]; snprintf(m, sizeof m, "part purchase call: garage=%d enum=%d part=%d -> %d", (int)b, (int)c, (int)d, (int)((uintptr_t)r & 0xFF)); g_api->log(g_mod, m); }
-    if (!t_buy_extra && g_new_pending.load() && (int)c <= 42 && (int)c >= 0) {
-        t_buy_extra = true;
-        const long pid = g_pending_id.load();
-        g_new_pending.store(false);
-        void* r2 = g_orig_buy(a, b, (uint64_t)NU_ENUM, (uint64_t)pid, e, f, g, h, i, j, k, l);
-        t_buy_extra = false;
-        const bool ok = ((uintptr_t)r2 & 0xFF) != 0;
-        if (ok) {
-            const long gid = (int)b;
-            if (gid > 0) { nu_set_level(gid, nu_cur_ord, (int)(pid - NU_ID_BASE)); if ((unsigned)gid != nu_active_garage && !g_force_stage) { nu_activate((unsigned)gid); fh3_save_last_garage((unsigned)gid); } }
-        }
-        if (g_api && g_mod) { char m[120]; snprintf(m, sizeof m, "kit purchase: part %ld on garage %d -> %s", pid, (int)b, ok ? "bought, stage set" : "refused (credits?)"); g_api->log(g_mod, m); }
-    }
     return r;
 }
 // Shop commit (0x4081A0): walks the basket vector (32-byte entries {enum, ?, index, partId, ..., +0x1c skip}) and runs the
@@ -2212,7 +2199,24 @@ static void* detour_commit(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint6
             g_api->log(g_mod, m);
         }
     }
-    return g_orig_commit(a, b, c, d, e, f, g, h, i, j, k, l);
+    void* ret = g_orig_commit(a, b, c, d, e, f, g, h, i, j, k, l);
+    // A new-slot stage waiting in the basket: the game's purchase routine is run for it with a real slot (the Quad Turbo type,
+    // whose price query and part rows are answered by the SQL layer for our part ids), then the stage is set on the car.
+    if (g_new_pending.exchange(false) && g_game_base && a && !(b & 0xFF)) {
+        const long pid = g_pending_id.load();
+        void* pg = *(void**)a;
+        int gid = 0; void* sess = nullptr;
+        if (pg) { sess = *(void**)((char*)pg + 0xac8); gid = ((int(*)(void*))((char*)g_game_base + 0x37AA10))(pg); }
+        if (pg && sess && gid > 0 && pid > NU_ID_BASE && pid < NU_ID_BASE + NU_LEVELS) {
+            t_buy_extra = true;
+            void* r2 = g_orig_buy((uint64_t)sess, (uint64_t)gid, 26, (uint64_t)pid, 0xFFFFFFFFull, 0, 0, 1, 0, 0, 0, 0);
+            t_buy_extra = false;
+            const bool ok = ((uintptr_t)r2 & 0xFF) != 0;
+            if (ok) { nu_set_level(gid, nu_cur_ord, (int)(pid - NU_ID_BASE)); if ((unsigned)gid != nu_active_garage && !g_force_stage) { nu_activate((unsigned)gid); fh3_save_last_garage((unsigned)gid); } }
+            if (g_api && g_mod) { char m[120]; snprintf(m, sizeof m, "kit purchase: part %ld on garage %d -> %s", pid, gid, ok ? "bought, stage set" : "refused (credits?)"); g_api->log(g_mod, m); }
+        }
+    }
+    return ret;
 }
 static std::atomic<uint64_t> g_kit_tick{0};
 typedef int (*FH3ExecFn)(void*, const char*, void*, void*, char**);
@@ -2335,6 +2339,7 @@ static void fh3_repair_save(void* db, const char* z) {
     FH3ExecFn ex = (FH3ExecFn)((uintptr_t)g_game_base + 0x421D0);
     int r = ex(db, "UPDATE Profile0_Career_Garage SET QuadTurbo=-1, AspirationTypeId=1 WHERE QuadTurbo BETWEEN 900470 AND 900473", nullptr, nullptr, nullptr);
     ex(db, "UPDATE Profile0_Career_Garage SET MotorParts=-1 WHERE MotorParts BETWEEN 900470 AND 900473", nullptr, nullptr, nullptr);
+    if (NU_ENUM != 26) ex(db, "DELETE FROM Profile0_Career_PurchasedParts WHERE PartEnum IN (26, 42) AND PartId BETWEEN 900470 AND 900473", nullptr, nullptr, nullptr);
     if (r == 0) ex(db, "UPDATE Profile0_Career_Garage SET AspirationTypeId=1 WHERE AspirationTypeId=4 AND QuadTurbo<0", nullptr, nullptr, nullptr);
     t_in_repair = false;
     if (g_api && g_mod) { char b[96]; snprintf(b, sizeof b, "kit: save clean-up returned %d", r); g_api->log(g_mod, b); }
@@ -3741,7 +3746,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.67";
+    info.version          = "2.0.0-fh3.68";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
