@@ -2033,7 +2033,7 @@ static void fh3_kit_sql(std::string& out) {
     out += b;
     snprintf(b, sizeof b, "INSERT OR REPLACE INTO UpgradeAreaForUpgradeType (id, UpgradeAreaId, UpgradeTypeId) VALUES (%d, 1, %d);\n", NU_TYPE_ID, NU_TYPE_ID);
     out += b;
-    static const char* names[NU_LEVELS] = {"Stock", "Stage 1 Nitrous", "Stage 2 Nitrous", "Stage 3 Nitrous"};
+    static const char* names[NU_LEVELS] = {"Stock Nitrous Kit", "Street Nitrous Kit", "Sport Nitrous Kit", "Race Nitrous Kit"};
     for (int l = 0; l < NU_LEVELS; ++l) {
         snprintf(b, sizeof b, "INSERT OR REPLACE INTO Upgrades (id, TypeId, IsException, Name, Level, Description, IconPath, ImagePath) VALUES (%d, '%d', 0, '%s', %d, '%s', '%s', '%s');\n",
                  NU_UPGRADE_BASE + l, NU_TYPE_ID, names[l], l, l ? "Nitrous injection." : "No nitrous system fitted.", l ? icon : stock, l ? iconlg : stocklg);
@@ -3524,7 +3524,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.56";
+    info.version          = "2.0.0-fh3.57";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;

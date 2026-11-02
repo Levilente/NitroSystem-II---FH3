@@ -188,9 +188,9 @@ static void nu_addx(NuBuf *b,int tenths){      /* 12 -> "1.2x" */
 static const char *nu_key_text(unsigned key,char *tmp,const NuCfg *cfg){
     if(key==NU_KEY_TYPE_NAME)return "Nitrous Kit";
     if(key==NU_KEY_TYPE_DESC)return "Nitrous oxide injection. Hold the nitro button while driving; a higher stage pushes harder.";
-    if(key==NU_KEY_PART_NAME)return "Stock";
+    if(key==NU_KEY_PART_NAME)return "Stock Nitrous Kit";
     if(key>NU_KEY_PART_NAME&&key<NU_KEY_PART_NAME+NU_LEVELS){
-        static const char *const nm[NU_LEVELS]={"Stock","Stage 1 Nitrous","Stage 2 Nitrous","Stage 3 Nitrous"};
+        static const char *const nm[NU_LEVELS]={"Stock Nitrous Kit","Street Nitrous Kit","Sport Nitrous Kit","Race Nitrous Kit"};
         return nm[key-NU_KEY_PART_NAME];
     }
     if(key>=NU_KEY_PART_DESC&&key<NU_KEY_PART_DESC+NU_LEVELS){
