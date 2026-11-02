@@ -2056,6 +2056,22 @@ static void enum_helper_log(const char* which, int e, void* ret) {
 }
 static void* detour_enum_col(int e) { enum_helper_log("column", e, __builtin_return_address(0)); return g_orig_enum_col(e); }
 static void* detour_enum_list(int e) { enum_helper_log("list", e, __builtin_return_address(0)); return g_orig_enum_list(e); }
+
+// FH3: the game builds its per-part queries (stat preview, selection) with an if-chain over the enum 0..42; an enum
+// above 42 builds nothing, so a part of it can't be selected. Both builders get the table's last entry instead.
+typedef void* (*QueryBuildA)(void*, void*, int);
+typedef void* (*QueryBuildB)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+static QueryBuildA g_orig_qa = nullptr;
+static QueryBuildB g_orig_qb = nullptr;
+static std::atomic<int> g_qlog{0};
+static void* detour_qa(void* t, void* o, int e) {
+    if (e > 42) { if (g_qlog.fetch_add(1) < 20 && g_api && g_mod) { char b[80]; snprintf(b, sizeof b, "query builder A: enum %d -> 42", e); g_api->log(g_mod, b); } e = 42; }
+    return g_orig_qa(t, o, e);
+}
+static void* detour_qb(uint64_t a, uint64_t e, uint64_t c, uint64_t d, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j) {
+    if ((int)e > 42) { if (g_qlog.fetch_add(1) < 20 && g_api && g_mod) { char b[80]; snprintf(b, sizeof b, "query builder B: enum %d -> 42", (int)e); g_api->log(g_mod, b); } e = 42; }
+    return g_orig_qb(a, e, c, d, f, g, h, i, j);
+}
 static std::atomic<uint64_t> g_kit_tick{0};
 typedef int (*FH3ExecFn)(void*, const char*, void*, void*, char**);
 static std::atomic<int> g_repair_tries{0};
@@ -3167,6 +3183,10 @@ static void nitro_worker_thread() {
         if (!(h1 && g_api->enable_hooks(g_mod, h1))) g_orig_enum_col = nullptr;
         FH3Hook* h2 = g_api->hook_function(g_mod, "enum->list", (char*)base + 0x19D9820, (void*)detour_enum_list, (void**)&g_orig_enum_list);
         if (!(h2 && g_api->enable_hooks(g_mod, h2))) g_orig_enum_list = nullptr;
+        FH3Hook* h3 = g_api->hook_function(g_mod, "query builder A", (char*)base + 0x37E980, (void*)detour_qa, (void**)&g_orig_qa);
+        if (!(h3 && g_api->enable_hooks(g_mod, h3))) g_orig_qa = nullptr;
+        FH3Hook* h4 = g_api->hook_function(g_mod, "query builder B", (char*)base + 0x410750, (void*)detour_qb, (void**)&g_orig_qb);
+        if (!(h4 && g_api->enable_hooks(g_mod, h4))) g_orig_qb = nullptr;
     }
     void* mgr_update = (void*)((uintptr_t)base + kFH3WorldUpdate);
     FH3Hook* hook_mgr = g_api->hook_function(g_mod, "CWorldCollObjMan::Update", mgr_update, (void*)detour_mgr_update, (void**)&g_orig_mgr_update);
@@ -3550,7 +3570,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.59";
+    info.version          = "2.0.0-fh3.60";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
