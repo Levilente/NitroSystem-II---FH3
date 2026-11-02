@@ -2058,8 +2058,8 @@ static void fh3_ensure_owned(void* db, long gid) {
     std::string q;
     for (int l = 0; l < NU_LEVELS; ++l) if (mask & (1L << l)) {
         char b[420];
-        snprintf(b, sizeof b, "INSERT INTO Profile0_Career_PurchasedParts (GarageId, PartEnum, PartId, ManufacturerId, PricePaid) SELECT %ld, 26, %ld, -1, 0 WHERE NOT EXISTS (SELECT 1 FROM Profile0_Career_PurchasedParts WHERE GarageId = %ld AND PartEnum = 26 AND PartId = %ld);",
-                 gid, (long)(NU_ID_BASE + l), gid, (long)(NU_ID_BASE + l));
+        snprintf(b, sizeof b, "INSERT INTO Profile0_Career_PurchasedParts (GarageId, PartEnum, PartId, ManufacturerId, PricePaid) SELECT %ld, %d, %ld, -1, 0 WHERE NOT EXISTS (SELECT 1 FROM Profile0_Career_PurchasedParts WHERE GarageId = %ld AND PartEnum = %d AND PartId = %ld);",
+                 gid, NU_ENUM, (long)(NU_ID_BASE + l), gid, NU_ENUM, (long)(NU_ID_BASE + l));
         q += b;
     }
     t_in_repair = true;
@@ -2071,16 +2071,34 @@ static void fh3_ensure_owned(void* db, long gid) {
 // Enum 26 is the game's Quad Turbo slot: its level query is per engine (our rows have no engine) and the install
 // is written into the whole garage row (QuadTurbo=<id>, AspirationTypeId=4). Both are answered / cleaned here.
 static std::atomic<long> g_last_asp{1};
+static bool fh3_rewrite_kit_impl(const char* z, size_t len, std::string& out);
+// With a type of its own (KitEnum 47) the game's statements name the table entry every enum above 42 shares
+// (List_UpgradeMotorParts / MotorParts). They are the same statements as the Quad Turbo ones, so they get the same
+// answers: only the names are mapped back.
 static bool fh3_rewrite_kit(const char* z, size_t len, std::string& out) {
+    if (NU_ENUM != 26 && len > 30 && (strstr(z, "MotorParts") != nullptr) && strstr(z, "9004") != nullptr) {
+        std::string t(z, len);
+        for (const auto& rp : {std::pair<const char*, const char*>{"List_UpgradeMotorParts", "List_UpgradeEngineTurboQuad"}, {"MotorParts", "QuadTurbo"}}) {
+            size_t at = 0;
+            while ((at = t.find(rp.first, at)) != std::string::npos) { t.replace(at, strlen(rp.first), rp.second); at += strlen(rp.second); }
+        }
+        static std::atomic<int> lg{0};
+        if (lg.fetch_add(1) < 12 && g_api && g_mod) { std::string m = "kit(enum " + std::to_string(NU_ENUM) + "): " + std::string(z, len < 400 ? len : 400); g_api->log(g_mod, m.c_str()); }
+        return fh3_rewrite_kit_impl(t.c_str(), t.size(), out);
+    }
+    return fh3_rewrite_kit_impl(z, len, out);
+}
+static bool fh3_rewrite_kit_impl(const char* z, size_t len, std::string& out) {
     if (len > 40 && z[0] == 'S' && strncmp(z, "SELECT ManufacturerID FROM List_UpgradeEngineTurboQuad WHERE Id=", 64) == 0) {
         long id = atol(z + 64);
         if (id >= NU_ID_BASE && id < NU_ID_BASE + NU_LEVELS) { out = "SELECT -1 AS ManufacturerID"; return true; }
         return false;
     }
     if (len > 60 && z[0] == 'S' && strncmp(z, "SELECT 1 From Profile0_Career_PurchasedParts WHERE GarageId = ", 62) == 0) {
-        const char* p = strstr(z, " AND PartEnum = 26 AND PartId = ");
+        const std::string pe = " AND PartEnum = " + std::to_string(NU_ENUM) + " AND PartId = ";
+        const char* p = strstr(z, pe.c_str());
         if (p) {
-            long id = atol(p + 32);
+            long id = atol(p + pe.size());
             if (id > NU_ID_BASE && id < NU_ID_BASE + NU_LEVELS) {            // bought at any manufacturer value
                 const char* m = strstr(p, " AND ManufacturerId");
                 out.assign(z, m ? (size_t)(m - z) : len);
@@ -2163,7 +2181,7 @@ static int detour_prepare(void* db, const char* z, int n, unsigned fl, void* old
             if (gid > 0 && (unsigned)gid != nu_active_garage && !g_force_stage) { nu_activate((unsigned)gid); fh3_save_last_garage((unsigned)gid); }
         }
         if (len > 60 && z[0] == 'S' && !t_in_repair && g_game_base && strncmp(z, "SELECT 1 From Profile0_Career_PurchasedParts WHERE GarageId = ", 62) == 0 &&
-            strstr(z, " AND PartEnum = 26 AND PartId = 9004")) {
+            strstr(z, (" AND PartEnum = " + std::to_string(NU_ENUM) + " AND PartId = 9004").c_str())) {
             fh3_ensure_owned(db, atol(z + 62));
             return fh3_prep(db, z, n, fl, old, pp, tail);
         }
@@ -3506,7 +3524,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.55";
+    info.version          = "2.0.0-fh3.56";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
@@ -3521,6 +3539,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     // Initialize paths & load persistent settings from NitroSystemII.ini
     init_paths();
     load_config();
+    g_nu_enum = (int)GetPrivateProfileIntW(L"FH3", L"KitEnum", 26, g_ini_path);
     if (api->api_version >= 2 && api->add_sql) {   // the Nitrous Kit rows (Engine > Custom upgrade)
         if (nu_cfg.price[1] == 0) { nu_cfg.price[1] = 15000; nu_cfg.price[2] = 30000; nu_cfg.price[3] = 60000; }
         std::string sql;
