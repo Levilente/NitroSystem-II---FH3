@@ -2385,6 +2385,13 @@ static void* detour_plist(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64
     }
     return r;
 }
+// "Modified car" -> Abandon setup (0x16C8C70; the popup's choice 1, from 0x16C69E0): the kit stage chosen in the shop is dropped.
+static AddFn g_orig_abandon = nullptr;
+static void* detour_abandon(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
+    const bool had = g_new_pending.exchange(false);
+    if (g_api && g_mod) { char m[100]; snprintf(m, sizeof m, "setup abandoned: kit choice %s", had ? "dropped" : "(none)"); g_api->log(g_mod, m); }
+    return g_orig_abandon(a, b, c, d, e, f, g, h, i, j, k, l);
+}
 static std::atomic<uint64_t> g_kit_tick{0};
 typedef int (*FH3ExecFn)(void*, const char*, void*, void*, char**);
 static std::atomic<int> g_repair_tries{0};
@@ -3534,6 +3541,8 @@ static void nitro_worker_thread() {
         if (!(h12 && g_api->enable_hooks(g_mod, h12))) g_orig_basket_popup = nullptr;
         FH3Hook* h13 = g_api->hook_function(g_mod, "purchase list (trace)", (char*)base + 0x4194A0, (void*)detour_plist, (void**)&g_orig_plist);
         if (!(h13 && g_api->enable_hooks(g_mod, h13))) g_orig_plist = nullptr;
+        FH3Hook* h14 = g_api->hook_function(g_mod, "abandon setup", (char*)base + 0x16C8C70, (void*)detour_abandon, (void**)&g_orig_abandon);
+        if (!(h14 && g_api->enable_hooks(g_mod, h14))) g_orig_abandon = nullptr;
         install_basket_patch((uintptr_t)base);
         FH3Hook* h5 = g_api->hook_function(g_mod, "A handler", (char*)base + 0x16DC050, (void*)detour_select, (void**)&g_orig_select);
         if (!(h5 && g_api->enable_hooks(g_mod, h5))) g_orig_select = nullptr;
@@ -3926,7 +3935,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.76";
+    info.version          = "2.0.0-fh3.77";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
