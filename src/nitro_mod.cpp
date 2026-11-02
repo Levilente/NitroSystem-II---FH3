@@ -2164,6 +2164,13 @@ static int detour_diff(const void* a, const void* b) {
 typedef void* (*AddFn)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 static AddFn g_orig_add = nullptr;
 static void* detour_add(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
+    if ((int)c > 42 && (int)b == NU_ID_BASE && nu_active_garage) {
+        // stock is always owned: switching back to it is an equip, not a purchase - no basket entry
+        nu_set_level((long)nu_active_garage, nu_cur_ord, 0);
+        g_new_pending.store(false);
+        if (g_api && g_mod) g_api->log(g_mod, "stock kit chosen: equipped directly, not added to the basket");
+        return nullptr;
+    }
     if ((int)c > 42) { const long id = (int)b; g_pending_id.store(id); g_new_pending.store(id > NU_ID_BASE && id < NU_ID_BASE + NU_LEVELS); }
     return g_orig_add(a, b, c, d, e, f, g, h, i, j, k, l);
 }
@@ -2175,6 +2182,7 @@ static AddFn g_orig_buy = nullptr;
 static thread_local bool t_buy_extra = false;
 static void* detour_buy(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
     void* r = g_orig_buy(a, b, c, d, e, f, g, h, i, j, k, l);
+    if (g_api && g_mod && !t_buy_extra) { char m[120]; snprintf(m, sizeof m, "part purchase call: garage=%d enum=%d part=%d -> %d", (int)b, (int)c, (int)d, (int)((uintptr_t)r & 0xFF)); g_api->log(g_mod, m); }
     if (!t_buy_extra && g_new_pending.load() && (int)c <= 42 && (int)c >= 0) {
         t_buy_extra = true;
         const long pid = g_pending_id.load();
@@ -2189,6 +2197,22 @@ static void* detour_buy(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t
         if (g_api && g_mod) { char m[120]; snprintf(m, sizeof m, "kit purchase: part %ld on garage %d -> %s", pid, (int)b, ok ? "bought, stage set" : "refused (credits?)"); g_api->log(g_mod, m); }
     }
     return r;
+}
+// Shop commit (0x4081A0): walks the basket vector (32-byte entries {enum, ?, index, partId, ..., +0x1c skip}) and runs the
+// purchase routine for each. Logged to see what the basket holds when the player confirms.
+static AddFn g_orig_commit = nullptr;
+static void* detour_commit(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
+    if (g_api && g_mod && g_game_base) {
+        char** v = (char**)((char*)g_game_base + 0x4D703A8);
+        char* bgn = v[0]; char* end = v[1];
+        char m[200]; snprintf(m, sizeof m, "shop commit: dl=%d r8=%d entries=%d pending=%d id=%ld", (int)(b & 0xFF), (int)(c & 0xFF), (bgn && end >= bgn) ? (int)((end - bgn) / 32) : -1, (int)g_new_pending.load(), g_pending_id.load());
+        g_api->log(g_mod, m);
+        for (char* q = bgn; q && q < end && (q - bgn) < 32 * 16; q += 32) {
+            snprintf(m, sizeof m, "  entry enum=%d +4=%d +8=%d part=%d +10=%d +14=%d +18=%d skip=%d", *(int*)q, *(int*)(q + 4), *(int*)(q + 8), *(int*)(q + 12), *(int*)(q + 16), *(int*)(q + 20), *(int*)(q + 24), (int)q[0x1c]);
+            g_api->log(g_mod, m);
+        }
+    }
+    return g_orig_commit(a, b, c, d, e, f, g, h, i, j, k, l);
 }
 static std::atomic<uint64_t> g_kit_tick{0};
 typedef int (*FH3ExecFn)(void*, const char*, void*, void*, char**);
@@ -3323,6 +3347,8 @@ static void nitro_worker_thread() {
         if (!(h8 && g_api->enable_hooks(g_mod, h8))) g_orig_diff = nullptr;
         FH3Hook* h9 = g_api->hook_function(g_mod, "part purchase", (char*)base + 0x36D360, (void*)detour_buy, (void**)&g_orig_buy);
         if (!(h9 && g_api->enable_hooks(g_mod, h9))) g_orig_buy = nullptr;
+        FH3Hook* h10 = g_api->hook_function(g_mod, "shop commit", (char*)base + 0x4081A0, (void*)detour_commit, (void**)&g_orig_commit);
+        if (!(h10 && g_api->enable_hooks(g_mod, h10))) g_orig_commit = nullptr;
         install_basket_patch((uintptr_t)base);
         FH3Hook* h5 = g_api->hook_function(g_mod, "A handler", (char*)base + 0x16DC050, (void*)detour_select, (void**)&g_orig_select);
         if (!(h5 && g_api->enable_hooks(g_mod, h5))) g_orig_select = nullptr;
@@ -3715,7 +3741,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.66";
+    info.version          = "2.0.0-fh3.67";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
