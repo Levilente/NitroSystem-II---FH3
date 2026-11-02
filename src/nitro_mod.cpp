@@ -2205,27 +2205,44 @@ static void fh3_log_stack(const char* what) {
     }
     g_api->log(g_mod, m);
 }
-static const char* fh3_msvc_str(const void* s) {
-    if (!s) return "";
-    const uint64_t cap = *(const uint64_t*)((const char*)s + 0x18);
-    return cap >= 16 ? *(const char* const*)s : (const char*)s;
+// Copies the text of an MSVC std::string at `s` into buf (empty when it isn't readable as one).
+static void fh3_msvc_str_copy(const void* s, char* buf, size_t cap) {
+    buf[0] = 0;
+    if (!s || (uintptr_t)s < 0x10000) return;
+    __try {
+        const uint64_t size = *(const uint64_t*)((const char*)s + 0x10);
+        const uint64_t res  = *(const uint64_t*)((const char*)s + 0x18);
+        if (size == 0 || size > 4096 || res < size) return;
+        const char* t = res >= 16 ? *(const char* const*)s : (const char*)s;
+        if (!t || (uintptr_t)t < 0x10000) return;
+        size_t n = size < cap - 1 ? (size_t)size : cap - 1;
+        for (size_t q = 0; q < n; ++q) { char ch = t[q]; buf[q] = (ch >= 32 && ch < 127) ? ch : '?'; }
+        buf[n] = 0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { buf[0] = 0; }
+}
+static void* fh3_read_ptr(const void* p) {
+    void* v = nullptr;
+    if (!p || (uintptr_t)p < 0x10000) return nullptr;
+    __try { v = *(void* const*)p; } __except (EXCEPTION_EXECUTE_HANDLER) { v = nullptr; }
+    return v;
 }
 static AddFn g_orig_dbq = nullptr;
 static void* detour_dbq(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
     void* r = g_orig_dbq(a, b, c, d, e, f, g, h, i, j, k, l);
     if (g_api && g_mod) {
-        void* out = b ? *(void**)b : nullptr;
-        char m[400]; snprintf(m, sizeof m, "trace db query: \"%.300s\" -> %p", fh3_msvc_str((const void*)c), out);
-        g_api->log(g_mod, m);
-        fh3_log_stack("  db query");
+        char q[320]; fh3_msvc_str_copy((const void*)c, q, sizeof q);
+        if (strstr(q, "Price") || strstr(q, "9004") || strstr(q, "Credits")) {
+            char m[420]; snprintf(m, sizeof m, "trace db query: \"%s\" -> %p", q, fh3_read_ptr((const void*)b));
+            g_api->log(g_mod, m);
+            fh3_log_stack("  db query");
+        }
     }
     return r;
 }
 static AddFn g_orig_credits = nullptr;
 static void* detour_credits(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
     if (g_api && g_mod) {
-        char m[200]; const unsigned char* t = (const unsigned char*)c;
-        snprintf(m, sizeof m, "trace credits set: obj %p new %d info %02X %d %d %d %d %d", (void*)a, (int)b, t ? t[0] : 0, t ? *(const int*)(t + 4) : 0, t ? *(const int*)(t + 8) : 0, t ? *(const int*)(t + 12) : 0, t ? *(const int*)(t + 16) : 0, t ? *(const int*)(t + 20) : 0);
+        char m[200]; snprintf(m, sizeof m, "trace credits set: obj %p new %d info %p", (void*)a, (int)b, (void*)c);
         g_api->log(g_mod, m);
         fh3_log_stack("  credits set");
     }
@@ -3819,7 +3836,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.70";
+    info.version          = "2.0.0-fh3.71";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
