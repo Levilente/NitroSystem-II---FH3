@@ -2270,22 +2270,41 @@ static int fh3_buy_filter(EXCEPTION_POINTERS* ep) {
     g_buy_fault_addr = ep->ExceptionRecord->NumberParameters > 1 ? (uintptr_t)ep->ExceptionRecord->ExceptionInformation[1] : 0;
     return EXCEPTION_EXECUTE_HANDLER;
 }
+// The kit is bought with the game's own pieces of its purchase routine (0x36D360), minus its price query (the game's statement
+// cache won't take our rewritten one): credits getter, the PurchasedParts row + PartsValue (0x36BDA0), credits setter (0x337440).
+static long g_buy_credits_before = -1, g_buy_credits_after = -1;
+static int fh3_kit_buy_raw(void* sess, int gid, long pid, long price) {
+    char* gb = (char*)g_game_base;
+    void* acct = *(void**)((char*)sess + 8);
+    if (!acct) return -2;
+    alignas(16) unsigned char tmp[0x100]; memset(tmp, 0, sizeof tmp);
+    void* v = ((void* (*)(void*, void*, const void*))(gb + 0x323A00))(acct, tmp, gb + 0x2D39008);
+    const unsigned credits = ((unsigned (*)(void*))(gb + 0x1A2FDA0))(v);
+    ((void (*)(void*))(gb + 0x1A2DFF0))(tmp);
+    g_buy_credits_before = (long)credits;
+    if (credits < (unsigned)price) return -1;
+    ((void (*)(void*, int, int, int, int, int))(gb + 0x36BDA0))(sess, gid, NU_ENUM, (int)pid, -1, (int)price);
+    ((void (*)(void*, unsigned, void*))(gb + 0x337440))(acct, credits - (unsigned)price, nullptr);
+    g_buy_credits_after = (long)(credits - (unsigned)price);
+    return 1;
+}
 static bool fh3_kit_buy_guarded(void* sess, int gid, long pid) {
-    bool ok = false;
-    g_buy_fault_at = 0;
+    const long price = nu_cfg.price[pid - NU_ID_BASE];
+    int r = 0;
+    g_buy_fault_at = 0; g_buy_credits_before = g_buy_credits_after = -1;
     __try {
-        void* r2 = g_orig_buy((uint64_t)sess, (uint64_t)gid, 26, (uint64_t)pid, 0xFFFFFFFFull, 0, 0, 1, 0, 0, 0, 0);
-        ok = ((uintptr_t)r2 & 0xFF) != 0;
+        r = fh3_kit_buy_raw(sess, gid, pid, price);
     } __except (fh3_buy_filter(GetExceptionInformation())) {
-        ok = false;
+        r = -3;
     }
-    if (g_buy_fault_at && g_api && g_mod) {
-        char m[160]; const uintptr_t gb = (uintptr_t)g_game_base;
-        snprintf(m, sizeof m, "kit purchase: the game's purchase routine faulted at %s+%llX reading %llX (caught)", g_buy_fault_at > gb && g_buy_fault_at < gb + 0x6000000 ? "game" : "abs",
-                 (unsigned long long)(g_buy_fault_at > gb && g_buy_fault_at < gb + 0x6000000 ? g_buy_fault_at - gb : g_buy_fault_at), (unsigned long long)g_buy_fault_addr);
+    if (g_api && g_mod) {
+        char m[220]; const uintptr_t gb = (uintptr_t)g_game_base;
+        if (r == -3) snprintf(m, sizeof m, "kit purchase: faulted at %s+%llX reading %llX (caught)", g_buy_fault_at > gb && g_buy_fault_at < gb + 0x6000000 ? "game" : "abs",
+                              (unsigned long long)(g_buy_fault_at > gb && g_buy_fault_at < gb + 0x6000000 ? g_buy_fault_at - gb : g_buy_fault_at), (unsigned long long)g_buy_fault_addr);
+        else snprintf(m, sizeof m, "kit purchase: price %ld, credits %ld -> %ld (%s)", price, g_buy_credits_before, g_buy_credits_after, r == 1 ? "paid" : r == -1 ? "not enough credits" : "no account");
         g_api->log(g_mod, m);
     }
-    return ok;
+    return r == 1;
 }
 static void* detour_commit(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
     fh3_log_stack("shop commit");
@@ -3856,7 +3875,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.73";
+    info.version          = "2.0.0-fh3.74";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
