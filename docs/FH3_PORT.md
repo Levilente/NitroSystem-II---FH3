@@ -15,7 +15,7 @@ getters/setters (GetPosition, SetPosition, GetVelocity, SetVelocity + speed, ...
 starts with the same code (`[rcx+0x270]`/`[rcx+0x540]` in FH3 vs `0x260`/`0x510`).
 
 
-## Status (fh3.53)
+## Status (1.0.0)
 | Feature | FH3 |
 |---|---|
 | Push, buildup, tank, lockout (no 33% lock), airborne cut | done |
@@ -27,12 +27,13 @@ starts with the same code (`[rcx+0x270]`/`[rcx+0x540]` in FH3 vs `0x260`/`0x510`
 | Blue vignette, speed lines | done (speed lines: 3 tiers instead of 6, the free HUD items) |
 | Refill on race start, refund on rewind, rumble, sounds | shared code, as FH2 |
 | Backfire on all cars (`UPDATE BackfireLevels`) | done |
-| MODS page | not yet: the FH3 platform has no Mods page; every setting is in `fh3-mods\NitroSystemII.ini` with the FH2 keys |
+| MODS page | done (platform 1.0.0), settings also in `fh3-mods\NitroSystemII.ini` |
 
 Diagnostics: `[FH3] ResearchLog=1` brings back the SQL / ownership log and the 2-second "FH3 check" lines.
 `[FH3] ForceStage=1..3` gives every car that stage (testing; 0 = the shop decides).
 
 ## Nitrous Kit on FH3
+> **Historical (fh3.53 to fh3.82).** Since 1.0.0 the kit is registered through the platform's upgrade bridge (API 11, see the platform's `docs/api.md` and `docs/fh3-game-notes.md`); the mod no longer touches the shop, the SQL or the purchase flow. The notes below describe how the game's upgrade shop works and why the first approach was replaced.
 - FH3 maps a part enum to a garage column through a table in the exe (32-byte entries: list table, column, ...).
   Enums 0..44 are all taken; 47 (the FH2 choice) is past the table, so the shop shows it but A does nothing.
   44 is the aspiration conversion page (its own query on `List_Aspiration`). The kit uses **26, the Quad Turbo slot**:

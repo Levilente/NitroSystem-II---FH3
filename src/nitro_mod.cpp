@@ -1,5 +1,5 @@
 #ifndef FH3MOD_PLATFORM_VERSION
-#define FH3MOD_PLATFORM_VERSION "0.1.0"
+#define FH3MOD_PLATFORM_VERSION "1.0.0"
 #endif
 #include "fh3mod.h"
 #include "legacy_files.h"
@@ -3405,11 +3405,11 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.83";
-    info.github_repo      = nullptr;   // the FH3 port has no releases yet
+    info.version          = "1.0.0";
+    info.github_repo      = "Levilente/NitroSystem-II---FH3";
     info.platform_version = FH3MOD_PLATFORM_VERSION;
-    info.check_updates    = 0;
-    info.description      = "Fast & Furious Nitro, ported from Forza Horizon 2. Hold LB to boost. Early FH3 build: exhaust flames in testing, no garage kit or gauge yet.";
+    info.check_updates    = 1;
+    info.description      = "Fast & Furious style nitro: buy the Nitrous Kit in the garage, hold LB to boost. Flames, NOS gauge, camera effects, sound and rumble.";
     info.offline_only     = 1;
     
     g_mod = api->register_mod(&info);
@@ -3420,9 +3420,8 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     // Initialize paths & load persistent settings from NitroSystemII.ini
     init_paths();
     load_config();
-    // The garage upgrade (the Nitrous Kit part). Without it the mod has no way to know a car owns nitrous.
-    // FH3: the garage upgrade isn't ported yet. Every car gets the stage in [FH3] Stage (1-3, default 2), with the
-    // boosts from [Upgrade] as before.
+    // The garage upgrade (the Nitrous Kit part) is registered through the platform's upgrade bridge below; without it
+    // the mod has no way to know a car owns nitrous.
     nu_load_config(g_ini_path, (int)(g_duration.load() + 0.5f));
     if (nu_cfg.price[1] == 0) { nu_cfg.price[1] = 15000; nu_cfg.price[2] = 30000; nu_cfg.price[3] = 60000; }
     fh3_register_kit(api);

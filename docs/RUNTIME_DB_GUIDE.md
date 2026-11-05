@@ -1,3 +1,5 @@
+> **FH2 write-up.** This describes the technique on Forza Horizon 2. On Forza Horizon 3 the mod uses the FH3 Mod Platform's upgrade bridge instead (see `docs/FH3_PORT.md`).
+
 # Adding upgrade parts to the garage at runtime (database, hooks, texts)
 
 This is the technical write-up of how **NitroSystem II** adds new entries to Forza Horizon 2's **Garage > Upgrades** menu **without changing any file of the game**. The same method works for any new upgrade type or option: it is the part that was the hard one to figure out, because the game's upgrade system has no extension point and the menu is driven by SQL views and a few fixed native functions.
