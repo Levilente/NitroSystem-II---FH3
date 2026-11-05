@@ -1,11 +1,8 @@
-"""FH2 (Xbox One / Durango) UI icon .swatchbin <-> PNG.
+"""FH3 (Xbox One / Durango) UI icon .swatchbin <-> PNG.
 
-File = 83-byte header (constant per size) + BC7 blocks in GCN-tiled order.
-  small icon: 200x200 px, in a 256x256 surface  (64x64 blocks)
-  large icon: 916x458 px, in a 1024x512 surface (256x128 blocks)
-The storage index of the 4x4 block at (x, y) is a GF(2)-linear function of the block coordinates.
-Surface 256x256 (verified on real files, see TEST in __main__):
-  i0=x0 i1=y0 i2=x1 i3=y1 i4=x3^x4^y3 i5=x4^y4 i6=x5^y5 i7=y4^y5 i8=y3 i9=x2 i10=y2 i11=y5
+File = 87-byte header (constant per size) + BC7 blocks, 1D-tiled (8x8-block micro tiles, Morton inside).
+  small icon: 200x200 px, in a 224x224 surface  (56x56 blocks, file 50 263 bytes)
+  large icon: 916x458 px, in a 928x480 surface  (232x120 blocks, file 445 527 bytes)
 """
 import sys
 import numpy as np
@@ -14,40 +11,21 @@ from bc import decode
 from bc7enc import encode
 
 HDR_SMALL = bytes.fromhex(
-    '62757247010001005300000053000100424358540200010028000000530000000000010000000100'
-    '484358543002080000000000000000000000000000000001c800c8000100c800c80001000101002e0100b8')
+    '62757247010100005700000057c400000100000042435854020001002c0000005700000000c4000000c40000484358543002080000000000000000000000000000000001c800c8000100c800c80001000101002d010048')
 HDR_LARGE = bytes.fromhex(
-    '627572470100010053000000530008004243585402000100280000005300000000000800000008004843585430'
-    '020800000000000000000000000000000000019403ca0101009403ca0101000101002e0100b8')
-assert len(HDR_SMALL) == 0x53 and len(HDR_LARGE) == 0x53
-
-# per surface: list of (xor mask over coordinate bits) for each storage-index bit; coordinate bit order x0..,y0..
-def _small_index(x, y):
-    g = lambda v, k: (v >> k) & 1
-    i = [g(x, 0), g(y, 0), g(x, 1), g(y, 1),
-         g(x, 3) ^ g(x, 4) ^ g(y, 3), g(x, 4) ^ g(y, 4), g(x, 5) ^ g(y, 5), g(y, 4) ^ g(y, 5),
-         g(y, 3), g(x, 2), g(y, 2), g(y, 5)]
-    return sum(b << k for k, b in enumerate(i))
-
-
-def _large_index(x, y):
-    g = lambda v, k: (v >> k) & 1
-    i = [g(x, 0), g(y, 0), g(x, 1), g(y, 1),
-         g(x, 3) ^ g(x, 4) ^ g(y, 3), g(x, 4) ^ g(y, 4), g(x, 5) ^ g(y, 5), g(x, 6) ^ g(y, 4) ^ g(y, 5),
-         g(x, 7) ^ g(y, 3), g(x, 2), g(y, 2), g(x, 6), g(x, 7), g(y, 5), g(y, 6)]
-    return sum(b << k for k, b in enumerate(i))
+    '62757247010100005700000057cc06000100000042435854020001002c0000005700000000cc060000cc06004843585430020800000000000000000000000000000000019403ca0101009403ca0101000101002d010048')
+HDR_SIZE = 87
+assert len(HDR_SMALL) == HDR_SIZE and len(HDR_LARGE) == HDR_SIZE
 
 
 def _index_map(kind):
-    if kind == 'small':
-        bw, bh = 64, 64
-        ys, xs = np.mgrid[0:bh, 0:bw]
-        return _small_index(xs, ys), bw, bh
-    if kind == 'large':
-        bw, bh = 256, 128
-        ys, xs = np.mgrid[0:bh, 0:bw]
-        return _large_index(xs, ys), bw, bh
-    raise ValueError(kind)
+    """FH3: ARRAY_1D_TILED_THIN1, 128 bit/block. The surface is cut into 8x8-block micro tiles stored row by row;
+    inside a tile the block index is the Morton order x0 y0 x1 y1 x2 y2."""
+    bw, bh = (56, 56) if kind == 'small' else (232, 120)
+    ys, xs = np.mgrid[0:bh, 0:bw]
+    lx, ly = xs & 7, ys & 7
+    m = (lx & 1) | ((ly & 1) << 1) | (((lx >> 1) & 1) << 2) | (((ly >> 1) & 1) << 3) | (((lx >> 2) & 1) << 4) | (((ly >> 2) & 1) << 5)
+    return ((ys >> 3) * (bw >> 3) + (xs >> 3)) * 64 + m, bw, bh
 
 
 SIZES = {'small': (200, 200), 'large': (916, 458)}
@@ -96,7 +74,7 @@ def png_to_swatchbin(img, kind='small'):
 def swatchbin_to_png(data, kind='small'):
     """Returns a straight-alpha RGBA PIL image."""
     idx, bw, bh = _index_map(kind)
-    body = np.frombuffer(data[0x53:], np.uint8).reshape(-1, 16)
+    body = np.frombuffer(data[HDR_SIZE:], np.uint8).reshape(-1, 16)
     lin = body[idx.reshape(-1)]           # row-major block order
     img = decode(lin.tobytes(), bw * 4, bh * 4, 98)
     w, h = SIZES[kind]
@@ -105,7 +83,7 @@ def swatchbin_to_png(data, kind='small'):
 
 
 def kind_of(data):
-    return {len(HDR_SMALL) + 65536: 'small', len(HDR_LARGE) + 524288: 'large'}[len(data)]
+    return {len(HDR_SMALL) + 56 * 56 * 16: 'small', len(HDR_LARGE) + 232 * 120 * 16: 'large'}[len(data)]
 
 
 if __name__ == '__main__':

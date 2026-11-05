@@ -2,13 +2,13 @@
    (mod platform set_file) under media\ui\textures\data_bound\Upgrade_Parts.zip\Custom\<prefix>_<slot>[_LG]_Icon.swatchbin.
    Works as C and C++, needs no libc. Include after icon_data.h. */
 #pragma once
-#define ICON_FILE_MAX 524371u
+#define ICON_FILE_MAX 445527u
 static unsigned char g_icon_buf[ICON_FILE_MAX];
 
 static unsigned icon_unpack(const IconEntry *e, unsigned char *out){
     const unsigned char *h = e->large ? k_icon_hdr_large : k_icon_hdr_small;
     unsigned n = 0, i;
-    for(i = 0; i < 0x53; i++) out[n++] = h[i];
+    for(i = 0; i < 0x57; i++) out[n++] = h[i];
     const unsigned char *p = e->rle, *end = e->rle + e->rle_size;
     while(p + 17 <= end){
         unsigned cnt = p[0], k;
