@@ -2023,27 +2023,41 @@ static bool g_research_log = false;   // [FH3] ResearchLog=1: the SQL / ownershi
 static int g_force_stage = 0;   // [FH3] ForceStage (1-3): every car has that stage, the shop is ignored (0 = normal)
 static void fh3_save_last_garage(unsigned g) { wchar_t v[16]; nu_wide_num(v, (long)g); WritePrivateProfileStringW(L"FH3", L"LastGarage", v, g_ini_path); }
 // The Nitrous Kit rows for the game database (FH3 layout: the area link is its own table, no AreaId in UpgradeTypes).
+// Names and descriptions go into the game's own string tables (Upgrades.str / UpgradeTypes.str, hashed keys); the database
+// rows only hold the reference text "_&<table hash><key>" like the game's own rows do.
+static std::wstring fh3_wide(const char* s) { std::wstring w; while (*s) w.push_back((wchar_t)(unsigned char)*s++); return w; }
+static std::string fh3_ref(uint32_t table, uint32_t key) { return "_&" + std::to_string(((unsigned long long)table << 32) | key); }
+static const char* const k_kit_names[NU_LEVELS] = {"Stock Nitrous Kit", "Street Nitrous Kit", "Sport Nitrous Kit", "Race Nitrous Kit"};
+static void fh3_kit_strings(const FH3ModApi* api, FH3Mod* mod) {
+    if (api->api_version < 10 || !api->add_string_key) return;
+    api->add_string_key(mod, "UpgradeTypes.str", 0x4E530010u, L"Nitrous Kit");
+    api->add_string_key(mod, "UpgradeTypes.str", 0x4E530011u, L"Nitrous oxide injection. Hold the nitro button while driving; a higher stage pushes harder.");
+    for (int l = 0; l < NU_LEVELS; ++l) {
+        api->add_string_key(mod, "Upgrades.str", 0x4E530020u + l, fh3_wide(k_kit_names[l]).c_str());
+        api->add_string_key(mod, "Upgrades.str", 0x4E530030u + l, l ? L"Nitrous injection." : L"No nitrous system fitted.");
+    }
+}
+static bool g_kit_strings_ok = false;   // the platform can write the strings: database rows then use references
 static void fh3_kit_sql(std::string& out) {
-    char b[700];
+    char b[900];
     const char* icon = "GAME:\\Media\\UI\\Textures\\Data_Bound\\Upgrade_Parts\\Engine_Power\\engine_power_Icon.swatchbin";
     const char* iconlg = "GAME:\\Media\\UI\\Textures\\Data_Bound\\Upgrade_Parts\\Engine_Power\\engine_power_LG_Icon.swatchbin";
     const char* stock = "GAME:\\Media\\UI\\Textures\\Data_Bound\\Upgrade_Parts\\stock_Icon.swatchbin";
     const char* stocklg = "GAME:\\Media\\UI\\Textures\\Data_Bound\\Upgrade_Parts\\stock_LG_Icon.swatchbin";
-    snprintf(b, sizeof b, "INSERT OR REPLACE INTO UpgradeTypes (id, PartEnum, IsException, DisplayOrder, EverymanUpgradeDisplayOrder, Name, Description, IconPath, ImagePath) VALUES (%d, %d, 0, 15, -1, 'Nitrous Kit', 'Nitrous oxide injection. Hold the nitro button while driving; a higher stage pushes harder.', '%s', '%s');\n", NU_TYPE_ID, NU_ENUM, icon, iconlg);
+    const std::string tn = g_kit_strings_ok ? fh3_ref(0x07710821u, 0x4E530010u) : "Nitrous Kit";
+    const std::string td = g_kit_strings_ok ? fh3_ref(0x07710821u, 0x4E530011u) : "Nitrous oxide injection. Hold the nitro button while driving; a higher stage pushes harder.";
+    snprintf(b, sizeof b, "INSERT OR REPLACE INTO UpgradeTypes (id, PartEnum, IsException, DisplayOrder, EverymanUpgradeDisplayOrder, Name, Description, IconPath, ImagePath) VALUES (%d, %d, 0, 15, -1, '%s', '%s', '%s', '%s');\n", NU_TYPE_ID, NU_ENUM, tn.c_str(), td.c_str(), icon, iconlg);
     out += b;
     snprintf(b, sizeof b, "INSERT OR REPLACE INTO UpgradeAreaForUpgradeType (id, UpgradeAreaId, UpgradeTypeId) VALUES (%d, 1, %d);\n", NU_TYPE_ID, NU_TYPE_ID);
     out += b;
-    static const char* names[NU_LEVELS] = {"Stock Nitrous Kit", "Street Nitrous Kit", "Sport Nitrous Kit", "Race Nitrous Kit"};
     for (int l = 0; l < NU_LEVELS; ++l) {
+        const std::string n = g_kit_strings_ok ? fh3_ref(0x968719E9u, 0x4E530020u + l) : k_kit_names[l];
+        const std::string d = g_kit_strings_ok ? fh3_ref(0x968719E9u, 0x4E530030u + l) : (l ? "Nitrous injection." : "No nitrous system fitted.");
         snprintf(b, sizeof b, "INSERT OR REPLACE INTO Upgrades (id, TypeId, IsException, Name, Level, Description, IconPath, ImagePath) VALUES (%d, '%d', 0, '%s', %d, '%s', '%s', '%s');\n",
-                 NU_UPGRADE_BASE + l, NU_TYPE_ID, names[l], l, l ? "Nitrous injection." : "No nitrous system fitted.", l ? icon : stock, l ? iconlg : stocklg);
+                 NU_UPGRADE_BASE + l, NU_TYPE_ID, n.c_str(), l, d.c_str(), l ? icon : stock, l ? iconlg : stocklg);
         out += b;
-        
     }
 }
-
-
-
 
 // FH3 research (KitEnum>42): who asks the part-table helpers about an enum above the table (0..42)?
 typedef void* (*EnumHelperFn)(int);
@@ -3952,7 +3966,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.78";
+    info.version          = "2.0.0-fh3.79";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
@@ -3971,6 +3985,8 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     if (api->api_version >= 2 && api->add_sql) {   // the Nitrous Kit rows (Engine > Custom upgrade)
         if (nu_cfg.price[1] == 0) { nu_cfg.price[1] = 15000; nu_cfg.price[2] = 30000; nu_cfg.price[3] = 60000; }
         std::string sql;
+        g_kit_strings_ok = api->api_version >= 10 && api->add_string_key != nullptr;
+        if (g_kit_strings_ok) fh3_kit_strings(api, g_mod);
         fh3_kit_sql(sql);
         api->add_sql(g_mod, sql.c_str());
     }
