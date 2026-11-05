@@ -2017,29 +2017,14 @@ static uint32_t fh3_car_exhaust_tips(char* car, uint8_t* msg) {
     return mask;
 }
 
-// ---- Nitrous Kit shop, step 1 (research): what SQL the garage runs. sqlite3LockAndPrepare is game+0x440C0:
-// (db, zSql, nBytes, prepFlags, pOld, ppStmt, pzTail). Logged only, nothing is changed yet.
-typedef int (*FH3PrepareFn)(void*, const char*, int, unsigned, void*, void**, const char**);
-static FH3PrepareFn g_orig_prepare = nullptr;
-static bool g_research_log = false;   // [FH3] ResearchLog=1: the SQL / ownership / per-2-second diagnostics of the port
-static int g_force_stage = 0;   // [FH3] ForceStage (1-3): every car has that stage, the shop is ignored (0 = normal)
-static void fh3_save_last_garage(unsigned g) { wchar_t v[16]; nu_wide_num(v, (long)g); WritePrivateProfileStringW(L"FH3", L"LastGarage", v, g_ini_path); }
-// The Nitrous Kit rows for the game database (FH3 layout: the area link is its own table, no AreaId in UpgradeTypes).
-// Names and descriptions go into the game's own string tables (Upgrades.str / UpgradeTypes.str, hashed keys); the database
-// rows only hold the reference text "_&<table hash><key>" like the game's own rows do.
+// ---- Nitrous Kit: an upgrade on the platform's upgrade bridge (API 11, register_upgrade) ----------------------------
+// The platform hands out the ids, writes the database rows and texts, runs the shop (basket, purchase, "install this
+// setup?") and keeps each car's stage and owned stages. The mod only describes the upgrade and hears which stage the
+// car being driven has.
+static bool g_research_log = false;   // [FH3] ResearchLog=1: per-2-second diagnostics
+static int g_bridge_handle = -1;
 static std::wstring fh3_wide(const char* s) { std::wstring w; while (*s) w.push_back((wchar_t)(unsigned char)*s++); return w; }
-static std::string fh3_ref(uint32_t table, uint32_t key) { return "_&" + std::to_string(((unsigned long long)table << 32) | key); }
 static const char* const k_kit_names[NU_LEVELS] = {"Stock Nitrous Kit", "Street Nitrous Kit", "Sport Nitrous Kit", "Race Nitrous Kit"};
-static void fh3_kit_strings(const FH3ModApi* api, FH3Mod* mod) {
-    if (api->api_version < 10 || !api->add_string_key) return;
-    api->add_string_key(mod, "UpgradeTypes.str", 0x4E530010u, L"Nitrous Kit");
-    api->add_string_key(mod, "UpgradeTypes.str", 0x4E530011u, L"Nitrous oxide injection. Hold the nitro button while driving; a higher stage pushes harder.");
-    for (int l = 0; l < NU_LEVELS; ++l) {
-        api->add_string_key(mod, "Upgrades.str", 0x4E530020u + l, fh3_wide(k_kit_names[l]).c_str());
-        api->add_string_key(mod, "Upgrades.str", 0x4E530030u + l, l ? L"Nitrous injection." : L"No nitrous system fitted.");
-    }
-}
-static bool g_kit_strings_ok = false;   // the platform can write the strings: database rows then use references
 // Hands the kit's icons to the game as Upgrade_Parts\Custom\nitro_<slot>[_LG]_Icon.swatchbin (platform set_file).
 static void fh3_install_icons(const FH3ModApi* api, FH3Mod* mod) {
     static const char base[] = "ui/textures/data_bound/Upgrade_Parts/";
@@ -2057,599 +2042,70 @@ static void fh3_install_icons(const FH3ModApi* api, FH3Mod* mod) {
     snprintf(msg, sizeof msg, "upgrade icons handed to the game: %d/%d", ok, total);
     api->log(mod, msg);
 }
-// An icon path: the mod's own picture when icons/<slot>.png exists, else the game's fallback.
-static std::string fh3_icon(const char* slot, int large, const char* fallback) {
-    if (!icon_has(slot, large)) return fallback;
+// An icon path: the mod's own picture when icons/<slot>.png exists, else "" (the platform uses the game's own).
+static std::string fh3_icon(const char* slot, int large) {
+    if (!icon_has(slot, large)) return "";
     IconEntry e{slot, large, nullptr, 0};
     char nm[160];
     icon_name(&e, nm, '\\');
     return std::string("GAME:\\Media\\UI\\Textures\\Data_Bound\\Upgrade_Parts\\") + nm;
 }
-static void fh3_kit_sql(std::string& out) {
-    char b[900];
-    const char* icon = "GAME:\\Media\\UI\\Textures\\Data_Bound\\Upgrade_Parts\\Engine_Power\\engine_power_Icon.swatchbin";
-    const char* iconlg = "GAME:\\Media\\UI\\Textures\\Data_Bound\\Upgrade_Parts\\Engine_Power\\engine_power_LG_Icon.swatchbin";
-    const char* stock = "GAME:\\Media\\UI\\Textures\\Data_Bound\\Upgrade_Parts\\stock_Icon.swatchbin";
-    const char* stocklg = "GAME:\\Media\\UI\\Textures\\Data_Bound\\Upgrade_Parts\\stock_LG_Icon.swatchbin";
-    const std::string tn = g_kit_strings_ok ? fh3_ref(0x07710821u, 0x4E530010u) : "Nitrous Kit";
-    const std::string td = g_kit_strings_ok ? fh3_ref(0x07710821u, 0x4E530011u) : "Nitrous oxide injection. Hold the nitro button while driving; a higher stage pushes harder.";
-    snprintf(b, sizeof b, "INSERT OR REPLACE INTO UpgradeTypes (id, PartEnum, IsException, DisplayOrder, EverymanUpgradeDisplayOrder, Name, Description, IconPath, ImagePath) VALUES (%d, %d, 0, 15, -1, '%s', '%s', '%s', '%s');\n", NU_TYPE_ID, NU_ENUM, tn.c_str(), td.c_str(), fh3_icon("kit", 0, icon).c_str(), fh3_icon("kit", 1, iconlg).c_str());
-    out += b;
-    snprintf(b, sizeof b, "INSERT OR REPLACE INTO UpgradeAreaForUpgradeType (id, UpgradeAreaId, UpgradeTypeId) VALUES (%d, 1, %d);\n", NU_TYPE_ID, NU_TYPE_ID);
-    out += b;
+// The platform tells which stage the car being driven has (and when it changes).
+static void fh3_on_stage(void*, uint32_t garage, int stage) {
+    nu_active_garage = garage;
+    nu_cur_level = stage < 0 ? 0 : (stage >= NU_LEVELS ? NU_LEVELS - 1 : stage);
+}
+// One-time move of the earlier per-car data (NitroSystemII.ini [GarageNitro] / [GarageOwned] / [GarageCar]) to the platform.
+static void fh3_import_old_cars(const FH3ModApi* api, int handle) {
+    if (!api->upgrade_import || GetPrivateProfileIntW(L"FH3", L"BridgeImported", 0, g_ini_path) != 0) return;
+    wchar_t keys[8192] = L"";
+    GetPrivateProfileStringW(L"GarageNitro", nullptr, L"", keys, 8192, g_ini_path);
+    int n = 0;
+    for (const wchar_t* k = keys; *k; k += wcslen(k) + 1) {
+        const int garage = _wtoi(k);
+        if (garage <= 0) continue;
+        const int stage = (int)GetPrivateProfileIntW(L"GarageNitro", k, 0, g_ini_path);
+        const long owned = (long)GetPrivateProfileIntW(L"GarageOwned", k, 0, g_ini_path);
+        const int ord = (int)GetPrivateProfileIntW(L"GarageCar", k, 0, g_ini_path);
+        api->upgrade_import(g_mod, handle, garage, ord, stage, (uint32_t)owned);
+        ++n;
+    }
+    WritePrivateProfileStringW(L"FH3", L"BridgeImported", L"1", g_ini_path);
+    char msg[96]; snprintf(msg, sizeof msg, "moved the stages of %d car(s) to the platform", n); api->log(g_mod, msg);
+}
+static void fh3_register_kit(const FH3ModApi* api) {
+    if (api->api_version < 11 || !api->register_upgrade) { api->log(g_mod, "The platform has no upgrade bridge (API 11): no Nitrous Kit in the garage. Update the FH3 mod platform."); return; }
+    fh3_install_icons(api, g_mod);
+    static std::wstring names[NU_LEVELS], descs[NU_LEVELS], tname, tdesc;
+    static std::string ic[NU_LEVELS], icl[NU_LEVELS], kic, kicl;
+    static FH3UpgradeStage st[NU_LEVELS];
+    char tmp[100];
+    tname = L"Nitrous Kit";
+    tdesc = fh3_wide(nu_key_text(NU_KEY_TYPE_DESC, tmp, &nu_cfg));
     for (int l = 0; l < NU_LEVELS; ++l) {
-        const std::string n = g_kit_strings_ok ? fh3_ref(0x968719E9u, 0x4E530020u + l) : k_kit_names[l];
-        const char stage_slot[8] = {'s','t','a','g','e',(char)('0' + (l < 1 ? 1 : (l > 3 ? 3 : l))),0,0};
-        const std::string d = g_kit_strings_ok ? fh3_ref(0x968719E9u, 0x4E530030u + l) : (l ? "Nitrous injection." : "No nitrous system fitted.");
-        snprintf(b, sizeof b, "INSERT OR REPLACE INTO Upgrades (id, TypeId, IsException, Name, Level, Description, IconPath, ImagePath) VALUES (%d, '%d', 0, '%s', %d, '%s', '%s', '%s');\n",
-                 NU_UPGRADE_BASE + l, NU_TYPE_ID, n.c_str(), l, d.c_str(), l ? fh3_icon(stage_slot, 0, icon).c_str() : stock, l ? fh3_icon(stage_slot, 1, iconlg).c_str() : stocklg);
-        out += b;
+        char slot[8] = {'s','t','a','g','e',(char)('0' + l),0,0};
+        names[l] = fh3_wide(k_kit_names[l]);
+        descs[l] = fh3_wide(nu_key_text(NU_KEY_PART_DESC + (unsigned)l, tmp, &nu_cfg));
+        if (l) { ic[l] = fh3_icon(slot, 0); icl[l] = fh3_icon(slot, 1); }
+        st[l] = {names[l].c_str(), descs[l].c_str(), (int32_t)(l ? nu_cfg.price[l] : 0), ic[l].c_str(), icl[l].c_str()};
     }
-}
-
-// FH3 research (KitEnum>42): who asks the part-table helpers about an enum above the table (0..42)?
-typedef void* (*EnumHelperFn)(int);
-static EnumHelperFn g_orig_enum_col = nullptr, g_orig_enum_list = nullptr;
-static std::atomic<int> g_enum_log{0};
-static void enum_helper_log(const char* which, int e, void* ret) {
-    if (e <= 42 || g_enum_log.fetch_add(1) >= 60 || !g_api || !g_mod || !g_game_base) return;
-    char b[160]; snprintf(b, sizeof b, "enum helper %s(%d) from game+0x%llX", which, e, (unsigned long long)((uintptr_t)ret - (uintptr_t)g_game_base));
-    g_api->log(g_mod, b);
-}
-static void* detour_enum_col(int e) { enum_helper_log("column", e, __builtin_return_address(0)); return g_orig_enum_col(e); }
-static void* detour_enum_list(int e) { enum_helper_log("list", e, __builtin_return_address(0)); return g_orig_enum_list(e); }
-
-// FH3: the game builds its per-part queries (stat preview, selection) with an if-chain over the enum 0..42; an enum
-// above 42 builds nothing, so a part of it can't be selected. Both builders get the table's last entry instead.
-typedef void* (*QueryBuildA)(void*, void*, int);
-typedef void* (*QueryBuildB)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
-static QueryBuildA g_orig_qa = nullptr;
-static QueryBuildB g_orig_qb = nullptr;
-static std::atomic<int> g_qlog{0};
-static void* detour_qa(void* t, void* o, int e) {
-    if (e > 42) { if (g_qlog.fetch_add(1) < 20 && g_api && g_mod) { char b[80]; snprintf(b, sizeof b, "query builder A: enum %d -> 42", e); g_api->log(g_mod, b); } e = 42; }
-    return g_orig_qa(t, o, e);
-}
-static void* detour_qb(uint64_t a, uint64_t e, uint64_t c, uint64_t d, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j) {
-    if ((int)e > 42) { if (g_qlog.fetch_add(1) < 20 && g_api && g_mod) { char b[80]; snprintf(b, sizeof b, "query builder B: enum %d -> 42", (int)e); g_api->log(g_mod, b); } e = 42; }
-    return g_orig_qb(a, e, c, d, f, g, h, i, j);
-}
-
-// FH3 research: which steps of the basket path run (and with which enum) when a part is chosen.
-typedef void* (*TraceFn)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
-static TraceFn g_tr_orig[8] = {};
-static std::atomic<int> g_tr_n[8] = {};
-static const char* const k_tr_name[8] = {"0x36D360", "0x16FAEF0", "0x38BCD0", "0x38D0B0", "0x16CC5B0", "BasketItem ctor", "0x1419EA220", "0x1419EA240"};
-template <int I> static void* trace_detour(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
-    if (g_tr_n[I].fetch_add(1) < 25 && g_api && g_mod) {
-        int ty = -99;
-        if (I == 1) { const char* o = (const char*)a; if (readable_ptr(o + 0x5f0, 4)) ty = *(const int*)(o + 0x5f0); }
-        char m[160]; snprintf(m, sizeof m, "trace %s: edx=%d r8d=%d r9d=%d type@5f0=%d", k_tr_name[I], (int)b, (int)c, (int)d, ty);
-        g_api->log(g_mod, m);
-    }
-    return g_tr_orig[I](a, b, c, d, e, f, g, h, i, j, k, l);
-}
-
-// FH3: the A handler (0x16DC050) first compares the car's part set (0xB4 bytes = the 43 enum slots) with the one being
-// previewed and leaves when they are equal. A part of an enum above 42 never changes those bytes, so it never counts as a
-// change. While that handler runs for such a part, that one comparison says "different".
-typedef void* (*SelectFn)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
-typedef int (*MemcmpFn)(const void*, const void*, size_t);
-static SelectFn g_orig_select = nullptr;
-static MemcmpFn g_orig_memcmp = nullptr;
-static thread_local bool t_sel_new = false;
-static void* detour_select(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
-    const bool ours = (int)b > 42;
-    if (ours) t_sel_new = true;
-    void* r = g_orig_select(a, b, c, d, e, f, g, h, i, j, k, l);
-    t_sel_new = false;
-    return r;
-}
-static std::atomic<bool> g_new_pending{false};
-static std::atomic<long> g_pending_id{0};
-static void fh3_dump_vec(const char* what, uintptr_t rva);
-// The kit stage chosen in the shop (pending) and whether it is owned already (an equip, no charge) on this car.
-static bool fh3_kit_owned(long gid, int lvl) { return lvl == 0 || ((nu_owned_mask(gid) >> lvl) & 1); }
-static int detour_memcmp(const void* x, const void* y, size_t n) {
-    // Leaving the upgrade shop (0x16FABA0) asks "Modified car - install this setup?" only when the car's setup (0x16C bytes)
-    // differs from the one it came in with; a new-slot stage chosen in the shop counts as a difference too.
-    if (n == 0x16C && g_game_base && (uintptr_t)__builtin_return_address(0) == (uintptr_t)g_game_base + 0x16FAC40) {
-        const int r = g_orig_memcmp(x, y, n);
-        if (g_api && g_mod) {
-            char m[120]; snprintf(m, sizeof m, "exit check: setup %s, kit pending %d (part %ld)", r ? "changed" : "unchanged", (int)g_new_pending.load(), g_pending_id.load());
-            g_api->log(g_mod, m);
-            fh3_dump_vec("basket list 0x4D70228", 0x4D70228);
-        }
-        return r ? r : (g_new_pending.load() ? 1 : 0);
-    }
-    if (t_sel_new && n == 0xB4) {
-        t_sel_new = false;
-        static std::atomic<int> lg{0};
-        if (lg.fetch_add(1) < 8 && g_api && g_mod) g_api->log(g_mod, "A handler: part set comparison answered 'different' for a new-slot part");
-        return 1;
-    }
-    return g_orig_memcmp(x, y, n);
-}
-
-// FH3: second stop in the A handler's worker (0x16FAEF0): "is the previewed part different from the installed one" is
-// read from the 43-slot part sets at enum*4+8, which for a new slot is memory past the set (equal on both sides), so
-// the part is dropped. The branch at 0x16FB341 (je skip) is routed through a stub that says "different" for such a part.
-extern "C" uintptr_t g_fh3_skip_target;
-uintptr_t g_fh3_skip_target = 0;
-extern "C" void fh3_basket_stub();
-__asm__(".text\n.globl fh3_basket_stub\nfh3_basket_stub:\n"
-        "test %al,%al\n"
-        "jnz 1f\n"
-        "push %rdx\n"
-        "mov 0x48(%rbp),%rdx\n"
-        "mov 0x5f0(%rdx),%edx\n"
-        "cmp $42,%edx\n"
-        "pop %rdx\n"
-        "jg 1f\n"
-        "add $8,%rsp\n"
-        "jmp *g_fh3_skip_target(%rip)\n"
-        "1: ret\n");
-static void install_basket_patch(uintptr_t base) {
-    unsigned char* site = (unsigned char*)(base + 0x16FB341);
-    unsigned char* slot = (unsigned char*)(base + 0x16FB5E8);
-    static const unsigned char orig[6] = {0x0F, 0x84, 0x0D, 0x02, 0x00, 0x00};
-    if (memcmp(site, orig, 6) != 0) { if (g_api && g_mod) g_api->log(g_mod, "basket patch: unexpected code at the branch, not patched"); return; }
-    for (int i = 0; i < 8; ++i) if (slot[i] != 0xCC) { if (g_api && g_mod) g_api->log(g_mod, "basket patch: slot area is not free, not patched"); return; }
-    g_fh3_skip_target = base + 0x16FB554;
-    DWORD old;
-    if (!VirtualProtect(slot, 8, PAGE_EXECUTE_READWRITE, &old)) return;
-    *(uintptr_t*)slot = (uintptr_t)&fh3_basket_stub;
-    VirtualProtect(slot, 8, old, &old);
-    const int64_t rel = (int64_t)(uintptr_t)slot - (int64_t)(uintptr_t)(site + 6);
-    if (!VirtualProtect(site, 6, PAGE_EXECUTE_READWRITE, &old)) return;
-    site[0] = 0xFF; site[1] = 0x15; *(int32_t*)(site + 2) = (int32_t)rel;
-    VirtualProtect(site, 6, old, &old);
-    FlushInstructionCache(GetCurrentProcess(), site, 6);
-    if (g_api && g_mod) g_api->log(g_mod, "basket patch installed (new-slot parts count as a change in the add step)");
-}
-
-// FH3: leaving the shop asks "buy the basket?" only when the car's part set (0xB4 bytes = slots 0..42) differs from the
-// previewed one; a part of a new slot is no part of those bytes. A new-slot stage in the basket is remembered here and
-// counted as a difference until it is bought (the kit's install write) or swapped back to stock.
-typedef int (*DiffFn)(const void*, const void*);
-static DiffFn g_orig_diff = nullptr;
-static int detour_diff(const void* a, const void* b) {
-    int r = g_orig_diff(a, b);
-    return (r & 0xFF) ? r : (g_new_pending.load() ? 1 : r);
-}
-typedef void* (*AddFn)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
-static AddFn g_orig_add = nullptr;
-static void fh3_hook_dbq();
-static void fh3_log_stack(const char* what);
-static void* detour_add(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
-    fh3_hook_dbq();
-    if (g_api && g_mod) { char m[100]; snprintf(m, sizeof m, "trace add to basket: part %d enum %d", (int)b, (int)c); g_api->log(g_mod, m); fh3_log_stack("  add"); }
-    if ((int)c > 42) {
-        const long id = (int)b;
-        const int lvl = (int)(id - NU_ID_BASE);
-        if (lvl >= 0 && lvl < NU_LEVELS) {
-            const long gid = (long)nu_active_garage;
-            g_pending_id.store(id);
-            g_new_pending.store(lvl != nu_cur_level);   // choosing the stage the car has is no change
-            if (fh3_kit_owned(gid, lvl)) {
-                // owned (stock always): installed with the setup ("Install setup" / the basket's buy), never bought again
-                if (g_api && g_mod) { char m[100]; snprintf(m, sizeof m, "kit stage %d chosen: owned, installs with the setup", lvl); g_api->log(g_mod, m); }
-                return nullptr;
-            }
-        }
-    }
-    return g_orig_add(a, b, c, d, e, f, g, h, i, j, k, l);
-}
-
-// FH3: the game's own purchase routine (0x36D360: price query, credits check + charge, PurchasedParts row) is run by the
-// shop's commit for the slots 0..42 only. When a new-slot stage waits in the basket, the routine is called once more for it
-// (same arguments, our enum and part id), and the stage is set on the car when it succeeded.
-static AddFn g_orig_buy = nullptr;
-static thread_local bool t_buy_extra = false;
-static void* detour_buy(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
-    void* r = g_orig_buy(a, b, c, d, e, f, g, h, i, j, k, l);
-    if (g_api && g_mod && !t_buy_extra) { char m[120]; snprintf(m, sizeof m, "part purchase call: garage=%d enum=%d part=%d -> %d", (int)b, (int)c, (int)d, (int)((uintptr_t)r & 0xFF)); g_api->log(g_mod, m); }
-    return r;
-}
-// Shop commit (0x4081A0): walks the basket vector (32-byte entries {enum, ?, index, partId, ..., +0x1c skip}) and runs the
-// purchase routine for each. Logged to see what the basket holds when the player confirms.
-static AddFn g_orig_commit = nullptr;
-// ---- purchase tracer (research): who prices, charges and opens the basket in the game's own flow ----
-static void fh3_log_stack(const char* what) {
-    if (!g_api || !g_mod || !g_game_base) return;
-    void* fr[24]; const USHORT n = RtlCaptureStackBackTrace(1, 24, fr, nullptr);
-    char m[600]; int o = snprintf(m, sizeof m, "%s stack:", what);
-    const uintptr_t gb = (uintptr_t)g_game_base;
-    for (USHORT i = 0; i < n && o < (int)sizeof m - 24; ++i) {
-        const uintptr_t x = (uintptr_t)fr[i];
-        if (x > gb && x < gb + 0x6000000) o += snprintf(m + o, sizeof m - o, " %llX", (unsigned long long)(x - gb));
-        else o += snprintf(m + o, sizeof m - o, " ext");
-    }
-    g_api->log(g_mod, m);
-}
-// Copies the text of an MSVC std::string at `s` into buf (empty when it isn't readable as one).
-static void fh3_msvc_str_copy(const void* s, char* buf, size_t cap) {
-    buf[0] = 0;
-    if (!s || (uintptr_t)s < 0x10000) return;
-    __try {
-        const uint64_t size = *(const uint64_t*)((const char*)s + 0x10);
-        const uint64_t res  = *(const uint64_t*)((const char*)s + 0x18);
-        if (size == 0 || size > 4096 || res < size) return;
-        const char* t = res >= 16 ? *(const char* const*)s : (const char*)s;
-        if (!t || (uintptr_t)t < 0x10000) return;
-        size_t n = size < cap - 1 ? (size_t)size : cap - 1;
-        for (size_t q = 0; q < n; ++q) { char ch = t[q]; buf[q] = (ch >= 32 && ch < 127) ? ch : '?'; }
-        buf[n] = 0;
-    } __except (EXCEPTION_EXECUTE_HANDLER) { buf[0] = 0; }
-}
-static void* fh3_read_ptr(const void* p) {
-    void* v = nullptr;
-    if (!p || (uintptr_t)p < 0x10000) return nullptr;
-    __try { v = *(void* const*)p; } __except (EXCEPTION_EXECUTE_HANDLER) { v = nullptr; }
-    return v;
-}
-static AddFn g_orig_dbq = nullptr;
-static void* detour_dbq(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
-    void* r = g_orig_dbq(a, b, c, d, e, f, g, h, i, j, k, l);
-    if (g_api && g_mod) {
-        char q[320]; fh3_msvc_str_copy((const void*)c, q, sizeof q);
-        if (strstr(q, "Price") || strstr(q, "9004") || strstr(q, "Credits")) {
-            char m[420]; snprintf(m, sizeof m, "trace db query: \"%s\" -> %p", q, fh3_read_ptr((const void*)b));
-            g_api->log(g_mod, m);
-            fh3_log_stack("  db query");
-        }
-    }
-    return r;
-}
-static AddFn g_orig_credits = nullptr;
-static void* detour_credits(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
-    if (g_api && g_mod) {
-        char m[200]; snprintf(m, sizeof m, "trace credits set: obj %p new %d info %p", (void*)a, (int)b, (void*)c);
-        g_api->log(g_mod, m);
-        fh3_log_stack("  credits set");
-    }
-    return g_orig_credits(a, b, c, d, e, f, g, h, i, j, k, l);
-}
-static AddFn g_orig_basket_popup = nullptr;
-static void* detour_basket_popup(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
-    if (g_api && g_mod) { g_api->log(g_mod, "trace basket popup created"); fh3_log_stack("  basket popup"); }
-    return g_orig_basket_popup(a, b, c, d, e, f, g, h, i, j, k, l);
-}
-static std::atomic<bool> g_dbq_hooked{false};
-static void fh3_hook_dbq() {
-    if (g_dbq_hooked.exchange(true) || !g_game_base || !g_api || !g_mod) return;
-    void* mgr = *(void**)((char*)g_game_base + 0x4D6F198);
-    if (!mgr) { g_dbq_hooked.store(false); return; }
-    void* fn = (*(void***)mgr)[0x48 / 8];
-    char m[120]; snprintf(m, sizeof m, "trace: db manager query function at game+%llX", (unsigned long long)((uintptr_t)fn - (uintptr_t)g_game_base));
-    g_api->log(g_mod, m);
-    FH3Hook* h = g_api->hook_function(g_mod, "db query (trace)", fn, (void*)detour_dbq, (void**)&g_orig_dbq);
-    if (!(h && g_api->enable_hooks(g_mod, h))) g_orig_dbq = nullptr;
-}
-static uintptr_t g_buy_fault_at = 0, g_buy_fault_addr = 0;
-static int fh3_buy_filter(EXCEPTION_POINTERS* ep) {
-    g_buy_fault_at = (uintptr_t)ep->ExceptionRecord->ExceptionAddress;
-    g_buy_fault_addr = ep->ExceptionRecord->NumberParameters > 1 ? (uintptr_t)ep->ExceptionRecord->ExceptionInformation[1] : 0;
-    return EXCEPTION_EXECUTE_HANDLER;
-}
-// The kit is bought with the game's own pieces of its purchase routine (0x36D360), minus its price query (the game's statement
-// cache won't take our rewritten one): credits getter, the PurchasedParts row + PartsValue (0x36BDA0), credits setter (0x337440).
-static long g_buy_credits_before = -1, g_buy_credits_after = -1;
-static int fh3_kit_buy_raw(void* sess, int gid, long pid, long price) {
-    char* gb = (char*)g_game_base;
-    void* acct = *(void**)((char*)sess + 8);
-    if (!acct) return -2;
-    alignas(16) unsigned char tmp[0x100]; memset(tmp, 0, sizeof tmp);
-    void* v = ((void* (*)(void*, void*, const void*))(gb + 0x323A00))(acct, tmp, gb + 0x2D39008);
-    const unsigned credits = ((unsigned (*)(void*))(gb + 0x1A2FDA0))(v);
-    ((void (*)(void*))(gb + 0x1A2DFF0))(tmp);
-    g_buy_credits_before = (long)credits;
-    if (credits < (unsigned)price) return -1;
-    ((void (*)(void*, int, int, int, int, int))(gb + 0x36BDA0))(sess, gid, NU_ENUM, (int)pid, -1, (int)price);
-    ((void (*)(void*, unsigned, void*))(gb + 0x337440))(acct, credits - (unsigned)price, nullptr);
-    g_buy_credits_after = (long)(credits - (unsigned)price);
-    return 1;
-}
-static bool fh3_kit_buy_guarded(void* sess, int gid, long pid) {
-    const long price = nu_cfg.price[pid - NU_ID_BASE];
-    int r = 0;
-    g_buy_fault_at = 0; g_buy_credits_before = g_buy_credits_after = -1;
-    __try {
-        r = fh3_kit_buy_raw(sess, gid, pid, price);
-    } __except (fh3_buy_filter(GetExceptionInformation())) {
-        r = -3;
-    }
-    if (g_api && g_mod) {
-        char m[220]; const uintptr_t gb = (uintptr_t)g_game_base;
-        if (r == -3) snprintf(m, sizeof m, "kit purchase: faulted at %s+%llX reading %llX (caught)", g_buy_fault_at > gb && g_buy_fault_at < gb + 0x6000000 ? "game" : "abs",
-                              (unsigned long long)(g_buy_fault_at > gb && g_buy_fault_at < gb + 0x6000000 ? g_buy_fault_at - gb : g_buy_fault_at), (unsigned long long)g_buy_fault_addr);
-        else snprintf(m, sizeof m, "kit purchase: price %ld, credits %ld -> %ld (%s)", price, g_buy_credits_before, g_buy_credits_after, r == 1 ? "paid" : r == -1 ? "not enough credits" : "no account");
-        g_api->log(g_mod, m);
-    }
-    return r == 1;
-}
-static void* detour_commit(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
-    fh3_log_stack("shop commit");
-    if (g_api && g_mod && g_game_base) fh3_dump_vec("basket list 0x4D70228 at commit", 0x4D70228);
-    if (g_api && g_mod && g_game_base) {
-        char** v = (char**)((char*)g_game_base + 0x4D703A8);
-        char* bgn = v[0]; char* end = v[1];
-        char m[200]; snprintf(m, sizeof m, "shop commit: dl=%d r8=%d entries=%d pending=%d id=%ld", (int)(b & 0xFF), (int)(c & 0xFF), (bgn && end >= bgn) ? (int)((end - bgn) / 32) : -1, (int)g_new_pending.load(), g_pending_id.load());
-        g_api->log(g_mod, m);
-        for (char* q = bgn; q && q < end && (q - bgn) < 32 * 16; q += 32) {
-            snprintf(m, sizeof m, "  entry enum=%d +4=%d +8=%d part=%d +10=%d +14=%d +18=%d skip=%d", *(int*)q, *(int*)(q + 4), *(int*)(q + 8), *(int*)(q + 12), *(int*)(q + 16), *(int*)(q + 20), *(int*)(q + 24), (int)q[0x1c]);
-            g_api->log(g_mod, m);
-        }
-    }
-    // A new-slot stage waiting in the basket: the game's purchase routine is run for it with a real slot (the Quad Turbo type,
-    // whose price query and part rows are answered by the SQL layer for our part ids), then the stage is set on the car.
-    if (g_new_pending.exchange(false) && g_game_base && a && !(b & 0xFF)) {
-        const long pid = g_pending_id.load();
-        void* pg = *(void**)a;
-        int gid = 0; void* sess = nullptr;
-        if (pg) { sess = *(void**)((char*)pg + 0xac8); gid = ((int(*)(void*))((char*)g_game_base + 0x37AA10))(pg); }
-        if (pg && gid > 0 && pid >= NU_ID_BASE && pid < NU_ID_BASE + NU_LEVELS && fh3_kit_owned(gid, (int)(pid - NU_ID_BASE))) {
-            nu_set_level(gid, nu_cur_ord, (int)(pid - NU_ID_BASE));
-            if (g_api && g_mod) { char m[100]; snprintf(m, sizeof m, "kit stage %ld installed (owned, no charge) on garage %d", pid - NU_ID_BASE, gid); g_api->log(g_mod, m); }
-        } else if (pg && sess && gid > 0 && pid > NU_ID_BASE && pid < NU_ID_BASE + NU_LEVELS) {
-            t_buy_extra = true;
-            const bool ok = fh3_kit_buy_guarded(sess, gid, pid);
-            t_buy_extra = false;
-            if (ok) { nu_set_level(gid, nu_cur_ord, (int)(pid - NU_ID_BASE)); if ((unsigned)gid != nu_active_garage && !g_force_stage) { nu_activate((unsigned)gid); fh3_save_last_garage((unsigned)gid); } }
-            if (g_api && g_mod) { char m[120]; snprintf(m, sizeof m, "kit purchase: part %ld on garage %d -> %s", pid, gid, ok ? "bought, stage set" : "refused (credits?)"); g_api->log(g_mod, m); }
-        }
-    }
-    void* ret = g_orig_commit(a, b, c, d, e, f, g, h, i, j, k, l);
-    return ret;
-}
-// trace: the purchase list builder (0x4194A0): compares the basket list (0x4D70228) with the car's part set and fills the purchase
-// vector (0x4D703A8) the shop commit and the exit prompt use.
-static void fh3_dump_vec(const char* what, uintptr_t rva) {
-    char** v = (char**)((char*)g_game_base + rva);
-    char* bgn = v[0]; char* end = v[1];
-    char m[200]; snprintf(m, sizeof m, "  %s: %d entries", what, (bgn && end >= bgn) ? (int)((end - bgn) / 32) : -1);
-    g_api->log(g_mod, m);
-    for (char* q = bgn; q && q < end && (q - bgn) < 32 * 24; q += 32) {
-        snprintf(m, sizeof m, "    enum=%d +4=%d +8=%d part=%d +10=%d +14=%d +18=%d +1c=%d", *(int*)q, *(int*)(q + 4), *(int*)(q + 8), *(int*)(q + 12), *(int*)(q + 16), *(int*)(q + 20), *(int*)(q + 24), *(int*)(q + 28));
-        g_api->log(g_mod, m);
-    }
-}
-static AddFn g_orig_plist = nullptr;
-static void* detour_plist(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
-    void* r = g_orig_plist(a, b, c, d, e, f, g, h, i, j, k, l);
-    if (g_api && g_mod && g_game_base) {
-        char m[160]; snprintf(m, sizeof m, "trace purchase list built (config %p, config[47 slot]=%d)", (void*)a, a ? *(int*)((char*)a + 8 + 47 * 4) : 0);
-        g_api->log(g_mod, m);
-        fh3_log_stack("  purchase list");
-        fh3_dump_vec("basket list 0x4D70228", 0x4D70228);
-        fh3_dump_vec("other list 0x4D702E8", 0x4D702E8);
-        fh3_dump_vec("purchase vector 0x4D703A8", 0x4D703A8);
-    }
-    return r;
-}
-// "Modified car" -> Abandon setup (0x16C8C70; the popup's choice 1, from 0x16C69E0): the kit stage chosen in the shop is dropped.
-static AddFn g_orig_abandon = nullptr;
-static void* detour_abandon(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h, uint64_t i, uint64_t j, uint64_t k, uint64_t l) {
-    const bool had = g_new_pending.exchange(false);
-    if (g_api && g_mod) { char m[100]; snprintf(m, sizeof m, "setup abandoned: kit choice %s", had ? "dropped" : "(none)"); g_api->log(g_mod, m); }
-    return g_orig_abandon(a, b, c, d, e, f, g, h, i, j, k, l);
-}
-static std::atomic<uint64_t> g_kit_tick{0};
-typedef int (*FH3ExecFn)(void*, const char*, void*, void*, char**);
-static std::atomic<int> g_repair_tries{0};
-static std::atomic<bool> g_repaired{false};
-static thread_local bool t_in_repair = false;
-// The game forgets a part when another one of the type is installed; our stages stay owned (stock always).
-static void fh3_ensure_owned(void* db, long gid) {
-    if (gid <= 0 || t_in_repair || !g_game_base) return;
-    long mask = nu_owned_mask(gid) | 1L;
-    int cur = nu_get_level(gid, 0);
-    if (cur > 0) mask |= 1L << cur;
-    std::string q;
-    for (int l = 0; l < NU_LEVELS; ++l) if (mask & (1L << l)) {
-        char b[420];
-        snprintf(b, sizeof b, "INSERT INTO Profile0_Career_PurchasedParts (GarageId, PartEnum, PartId, ManufacturerId, PricePaid) SELECT %ld, %d, %ld, -1, 0 WHERE NOT EXISTS (SELECT 1 FROM Profile0_Career_PurchasedParts WHERE GarageId = %ld AND PartEnum = %d AND PartId = %ld);",
-                 gid, NU_ENUM, (long)(NU_ID_BASE + l), gid, NU_ENUM, (long)(NU_ID_BASE + l));
-        q += b;
-    }
-    t_in_repair = true;
-    int r = ((FH3ExecFn)((uintptr_t)g_game_base + 0x421D0))(db, q.c_str(), nullptr, nullptr, nullptr);
-    t_in_repair = false;
-    static std::atomic<int> lg{0};
-    if (lg.fetch_add(1) < 4 && g_api && g_mod) { char b[96]; snprintf(b, sizeof b, "kit: owned rows for garage %ld (mask %ld), exec %d", gid, mask, r); g_api->log(g_mod, b); }
-}
-// Enum 26 is the game's Quad Turbo slot: its level query is per engine (our rows have no engine) and the install
-// is written into the whole garage row (QuadTurbo=<id>, AspirationTypeId=4). Both are answered / cleaned here.
-static std::atomic<long> g_last_asp{1};
-static bool fh3_rewrite_kit_impl(const char* z, size_t len, std::string& out);
-// With a type of its own (KitEnum 47) the game's statements name the table entry every enum above 42 shares
-// (List_UpgradeMotorParts / MotorParts). They are the same statements as the Quad Turbo ones, so they get the same
-// answers: only the names are mapped back.
-static bool fh3_rewrite_kit(const char* z, size_t len, std::string& out) {
-    if (NU_ENUM != 26 && NU_ENUM != 42 && len > 30 && (strstr(z, "MotorParts") != nullptr) && strstr(z, "9004") != nullptr) {
-        std::string t(z, len);
-        for (const auto& rp : {std::pair<const char*, const char*>{"List_UpgradeMotorParts", "List_UpgradeEngineTurboQuad"}, {"MotorParts", "QuadTurbo"}}) {
-            size_t at = 0;
-            while ((at = t.find(rp.first, at)) != std::string::npos) { t.replace(at, strlen(rp.first), rp.second); at += strlen(rp.second); }
-        }
-        static std::atomic<int> lg{0};
-        if (lg.fetch_add(1) < 12 && g_api && g_mod) { std::string m = "kit(enum " + std::to_string(NU_ENUM) + "): " + std::string(z, len < 400 ? len : 400); g_api->log(g_mod, m.c_str()); }
-        return fh3_rewrite_kit_impl(t.c_str(), t.size(), out);
-    }
-    return fh3_rewrite_kit_impl(z, len, out);
-}
-// The slot the kit lives in: 26 = Quad Turbo column, 42 = MotorParts (a column no car of the game uses).
-static const char* kit_col() { return NU_ENUM == 42 ? "MotorParts" : "QuadTurbo"; }
-static const char* kit_list() { return NU_ENUM == 42 ? "List_UpgradeMotorParts" : "List_UpgradeEngineTurboQuad"; }
-static const char* kit_owner() { return NU_ENUM == 42 ? "MotorID" : "EngineId"; }
-static bool fh3_rewrite_kit_impl(const char* z, size_t len, std::string& out) {
-    const std::string pm = std::string("SELECT ManufacturerID FROM ") + kit_list() + " WHERE Id=";
-    if (len > 40 && z[0] == 'S' && strncmp(z, pm.c_str(), pm.size()) == 0) {
-        long id = atol(z + pm.size());
-        if (id >= NU_ID_BASE && id < NU_ID_BASE + NU_LEVELS) { out = "SELECT -1 AS ManufacturerID"; return true; }
-        return false;
-    }
-    if (len > 60 && z[0] == 'S' && strncmp(z, "SELECT 1 From Profile0_Career_PurchasedParts WHERE GarageId = ", 62) == 0) {
-        const std::string pe = " AND PartEnum = " + std::to_string(NU_ENUM) + " AND PartId = ";
-        const char* p = strstr(z, pe.c_str());
-        if (p) {
-            long id = atol(p + pe.size());
-            if (id > NU_ID_BASE && id < NU_ID_BASE + NU_LEVELS) {            // bought at any manufacturer value
-                const char* m = strstr(p, " AND ManufacturerId");
-                out.assign(z, m ? (size_t)(m - z) : len);
-                return true;
-            }
-        }
-        return false;
-    }
-    const std::string pp = std::string("SELECT Price FROM ") + kit_list() + " WHERE Id = ";
-    if (len > 30 && z[0] == 'S' && strncmp(z, pp.c_str(), pp.size()) == 0) {
-        long id = atol(z + pp.size());
-        if (id >= NU_ID_BASE && id < NU_ID_BASE + NU_LEVELS) { out = "SELECT " + std::to_string(id == NU_ID_BASE ? 0L : nu_cfg.price[id - NU_ID_BASE]) + " AS Price"; return true; }
-        return false;
-    }
-    const std::string pl = std::string("SELECT Level FROM ") + kit_list() + " WHERE " + kit_owner() + "=";
-    if (len > 40 && z[0] == 'S' && strncmp(z, pl.c_str(), pl.size()) == 0) {
-        const char* p = strstr(z, " AND Id=");
-        long id = p ? atol(p + 8) : 0;
-        if (id >= NU_ID_BASE && id < NU_ID_BASE + NU_LEVELS) { out = "SELECT " + std::to_string(id - NU_ID_BASE) + " AS Level"; return true; }
-        return false;
-    }
-    const std::string pu = std::string("UPDATE Profile0_Career_Garage SET ") + kit_col() + " = 9004";
-    if (len > 40 && z[0] == 'U' && strncmp(z, pu.c_str(), pu.size()) == 0) g_kit_tick.store(GetTickCount64());
-    if (len > 40 && z[0] == 'U' && strncmp(z, "UPDATE Profile0_Career_Garage SET AspirationTypeId=4 WHERE Id=", 62) == 0 && GetTickCount64() - g_kit_tick.load() < 5000) {
-        // the kit install left the car's aspiration alone (see below), so this write only has to change nothing
-        out = std::string("UPDATE Profile0_Career_Garage SET AspirationTypeId=AspirationTypeId") + strstr(z, " WHERE Id=");
-        return true;
-    }
-    if (len > 60 && z[0] == 'U' && strncmp(z, "UPDATE Profile0_Career_Garage SET", 33) == 0) {
-        const char* asp = strstr(z, "AspirationTypeId=");
-        const std::string kc = std::string(kit_col()) + "=";
-        const char* q = strstr(z, kc.c_str());
-        long id = q ? atol(q + kc.size()) : 0;
-        const bool ours = id >= NU_ID_BASE && id < NU_ID_BASE + NU_LEVELS;
-        if (asp && !ours) { long v = atol(asp + 17); if (v > 0 && (v != 4 || id > 0)) g_last_asp.store(v); }   // 4 (quad) only counts with a real quad turbo id
-        if (!ours) return false;
-        const char* w = strstr(z, " WHERE Id=");
-        long gid = w ? atol(w + 10) : 0;
-        g_new_pending.store(false);
-        if (gid > 0) { nu_set_level(gid, nu_cur_ord, (int)(id - NU_ID_BASE)); if ((unsigned)gid != nu_active_garage && !g_force_stage) { nu_activate((unsigned)gid); fh3_save_last_garage((unsigned)gid); } }
-        // The game writes its whole idea of the car's parts (our id in the kit's column and whatever it clears because
-        // of it). The kit is no engine part: nothing of that may reach the car. Only the stage is kept, above.
-        std::string r = std::string("UPDATE Profile0_Career_Garage SET ") + kit_col() + "=" + kit_col() + " WHERE Id=" + std::to_string(gid);
-        out = r;
-        static std::atomic<int> logged{0};
-        if (logged.fetch_add(1) < 6 && g_api && g_mod) { char b[96]; snprintf(b, sizeof b, "kit: installed stage %ld on garage %ld", id - NU_ID_BASE, gid); g_api->log(g_mod, b); }
-        return true;
-    }
-    return false;
-}
-
-
-// A save that still holds one of our ids in the QuadTurbo slot crashes the game on load (no real part behind it):
-// before the first statement that touches the garage table, clean those rows through the game's own sqlite3_exec.
-static void fh3_repair_save(void* db, const char* z) {
-    if (g_repaired.load() || t_in_repair || !z || !g_game_base || !strstr(z, "Profile0_Career_Garage")) return;
-    if (g_repair_tries.fetch_add(1) >= 6) return;
-    t_in_repair = true;
-    FH3ExecFn ex = (FH3ExecFn)((uintptr_t)g_game_base + 0x421D0);
-    int r = ex(db, "UPDATE Profile0_Career_Garage SET QuadTurbo=-1, AspirationTypeId=1 WHERE QuadTurbo BETWEEN 900470 AND 900473", nullptr, nullptr, nullptr);
-    ex(db, "UPDATE Profile0_Career_Garage SET MotorParts=-1 WHERE MotorParts BETWEEN 900470 AND 900473", nullptr, nullptr, nullptr);
-    if (NU_ENUM != 26) ex(db, "DELETE FROM Profile0_Career_PurchasedParts WHERE PartEnum IN (26, 42) AND PartId BETWEEN 900470 AND 900473", nullptr, nullptr, nullptr);
-    if (r == 0) ex(db, "UPDATE Profile0_Career_Garage SET AspirationTypeId=1 WHERE AspirationTypeId=4 AND QuadTurbo<0", nullptr, nullptr, nullptr);
-    if (r == 0) {   // research: how the game's own part names are stored (loc keys or text?)
-        static const char* qs[] = {
-            "SELECT 'type', id, PartEnum, Name, Description FROM UpgradeTypes WHERE PartEnum IN (17, 26, 47)",
-            "SELECT 'upg', u.id, u.Level, u.Name, u.Description, u.IconPath FROM Upgrades u JOIN UpgradeTypes t ON u.TypeId = t.id WHERE t.PartEnum IN (17, 47) LIMIT 10",
-            "SELECT 'cols', name, type FROM pragma_table_info('Upgrades')",
-        };
-        for (const char* q : qs) {
-            char* err = nullptr;
-            ex(db, q, (void*)+[](void*, int n, char** v, char**) -> int {
-                char line[700]; int o = snprintf(line, sizeof line, "names research:");
-                for (int i = 0; i < n && o < (int)sizeof line - 2; ++i) o += snprintf(line + o, sizeof line - o, " | %.150s", v[i] ? v[i] : "NULL");
-                if (g_api && g_mod) g_api->log(g_mod, line);
-                return 0;
-            }, nullptr, &err);
-            if (err && g_api && g_mod) { char b[300]; snprintf(b, sizeof b, "names research error: %.250s", err); g_api->log(g_mod, b); }
-        }
-    }
-    t_in_repair = false;
-    if (g_api && g_mod) { char b[96]; snprintf(b, sizeof b, "kit: save clean-up returned %d", r); g_api->log(g_mod, b); }
-    if (r == 0) g_repaired.store(true);
-}
-
-static int fh3_prep(void* db, const char* z, int n, unsigned fl, void* old, void** pp, const char** tail) {
-    int r = g_orig_prepare(db, z, n, fl, old, pp, tail);
-    static std::atomic<int> owned_log{0};
-    if (g_research_log && z && z[0] == 'S' && strncmp(z, "SELECT 1", 8) == 0 && owned_log.fetch_add(1) < 300 && g_api && g_mod) {
-        char b[260]; snprintf(b, sizeof b, "own-check r=%d: %.220s", r, z); g_api->log(g_mod, b);
-    }
-    static std::atomic<int> fails{0};
-    if (r != 0 && z && fails.fetch_add(1) < 40 && g_api && g_mod) {
-        char b[700]; snprintf(b, sizeof b, "prepare failed (%d): %.500s", r, z);
-        for (char* c = b; *c; ++c) if (*c == '\n' || *c == '\r' || *c == '\t') *c = ' ';
-        g_api->log(g_mod, b);
-    }
-    return r;
-}
-static int detour_prepare(void* db, const char* z, int n, unsigned fl, void* old, void** pp, const char** tail) {
-    if (!t_in_repair && !g_repaired.load()) fh3_repair_save(db, z);
-    // The garage's part lists / installs go through nu_rewrite (view rows, installed marker, install = level change).
-    if (z && readable_ptr(z, 64)) {
-        const size_t len = n < 0 ? strlen(z) : (size_t)n;
-        if (len > 24 && z[0] == 'U' && strncmp(z, "UPDATE Profile0_Career_Garage SET TopSpeed", 42) == 0) {
-            const char* w = strstr(z, " WHERE Id=");   // the driven car's stats are saved: that is its garage id
-            long gid = w ? atol(w + 10) : 0;
-            if (gid > 0 && (unsigned)gid != nu_active_garage && !g_force_stage) { nu_activate((unsigned)gid); fh3_save_last_garage((unsigned)gid); }
-        }
-        if (len > 60 && z[0] == 'S' && !t_in_repair && g_game_base && strncmp(z, "SELECT 1 From Profile0_Career_PurchasedParts WHERE GarageId = ", 62) == 0 &&
-            strstr(z, (" AND PartEnum = " + std::to_string(NU_ENUM) + " AND PartId = 9004").c_str())) {
-            fh3_ensure_owned(db, atol(z + 62));
-            return fh3_prep(db, z, n, fl, old, pp, tail);
-        }
-        if (z[0] == 'S' && strncmp(z, "SELECT PartTable.PartId AS id", 29) == 0) { long g2 = -1; if (nu_partlist_enum(z, len, &g2) && g2 > 0) fh3_ensure_owned(db, g2); }
-        std::string kitq;
-        const char* use = fh3_rewrite_kit(z, len, kitq) ? kitq.c_str() : nu_rewrite(z, len);
-        if (len > 18 && z[0] == 'S' && strncmp(z, "SELECT Price FROM ", 18) == 0 && g_api && g_mod) {   // trace: the purchase's price query
-            int r = fh3_prep(db, use, use == z ? n : -1, fl, old, pp, tail);
-            if (use != z && tail && readable_ptr(tail, sizeof *tail)) *tail = z + len;
-            char m[300]; snprintf(m, sizeof m, "trace price query: \"%.*s\" -> \"%.80s\" rc=%d stmt=%p", (int)(len < 120 ? len : 120), z, use, r, pp ? *pp : nullptr);
-            g_api->log(g_mod, m);
-            return r;
-        }
-        if (use != z) {
-            if (z[0] == 'U' || strncmp(z, "SELECT PartTable", 16) == 0) {
-                long gid = 0; const char* g = strstr(z, "GarageId = "); if (!g) { g = strstr(z, "WHERE Id = "); if (g) gid = atol(g + 11); } else gid = atol(g + 11);
-                if (gid > 0 && (unsigned)gid != nu_active_garage && !g_force_stage) { nu_activate((unsigned)gid); fh3_save_last_garage((unsigned)gid); }
-            }
-            int r = fh3_prep(db, use, -1, fl, old, pp, tail);
-            if (tail && readable_ptr(tail, sizeof *tail)) *tail = z + len;   // some callers (sqlite3_exec chain) pass a non-pointer here
-            return r;
-        }
-    }
-    static std::atomic<int> left{900};
-    if (g_research_log && z && left.load() > 0 && readable_ptr(z, 16)) {
-        const char* keys[] = {"UpgradeParts", "UpgradeTypes", "UpgradeAreas", "PurchasedParts", "Career_Garage SET", "List_UpgradeMotorParts", "NitroSystemII", "PartEnum = 26", "900470", "900471", "900472", "900473"};
-        bool hit = false;
-        for (const char* k : keys) if (strstr(z, k)) { hit = true; break; }
-        if (hit && ((strncmp(z, "SELECT 1 From Profile0_Career_PurchasedParts", 44) == 0 && !strstr(z, "PartEnum = 26")) || strncmp(z, "CREATE INDEX", 12) == 0 || strncmp(z, "CREATE TABLE", 12) == 0 || strstr(z, "WHERE 1=2") ||
-                    strstr(z, "filedb.") || strncmp(z, "INSERT INTO [", 13) == 0)) hit = false;   // startup copying, not the garage
-        if (hit && left.fetch_sub(1) > 0) {
-            char b[900];
-            size_t len = n < 0 ? strlen(z) : (size_t)n;
-            const bool kitrel = strstr(z, "PartEnum = 26") || strstr(z, "9004") || strstr(z, "PurchasedParts") || strstr(z, "Career_Garage SET");
-            if (len > (kitrel ? 3400 : 300)) len = kitrel ? 3400 : 300;
-            char* big = (char*)malloc(len + 16);
-            if (big) { snprintf(big, len + 16, "sql: %.*s", (int)len, z); for (char* c = big; *c; ++c) if (*c == '\n' || *c == '\r' || *c == '\t') *c = ' '; if (g_api && g_mod) g_api->log(g_mod, big); free(big); }
-            (void)b;
-            return fh3_prep(db, z, n, fl, old, pp, tail);
-            snprintf(b, sizeof b, "sql: %.*s", (int)len, z);
-            for (char* c = b; *c; ++c) if (*c == '\n' || *c == '\r' || *c == '\t') *c = ' ';
-            if (g_api && g_mod) g_api->log(g_mod, b);
-        }
-    }
-    return fh3_prep(db, z, n, fl, old, pp, tail);
+    kic = fh3_icon("kit", 0); kicl = fh3_icon("kit", 1);
+    FH3UpgradeDef d{};
+    d.size = sizeof d;
+    d.id = "nitrosystem2.kit";
+    d.name = tname.c_str();
+    d.description = tdesc.c_str();
+    d.area = 1;
+    d.icon = kic.c_str();
+    d.icon_large = kicl.c_str();
+    d.stage_count = NU_LEVELS;
+    d.stages = st;
+    d.on_stage = fh3_on_stage;
+    d.preferred_slot = 0;   // the slot (part enum 47) this upgrade always had, so earlier saves keep working
+    g_bridge_handle = api->register_upgrade(g_mod, &d);
+    char msg[80]; snprintf(msg, sizeof msg, "Nitrous Kit registered on the upgrade bridge (slot %d)", g_bridge_handle);
+    api->log(g_mod, msg);
+    if (g_bridge_handle >= 0) fh3_import_old_cars(api, g_bridge_handle);
 }
 
 typedef uint64_t (*HudCtrlFn)(void*, void*, void*, void*);
@@ -3537,11 +2993,6 @@ static void nitro_worker_thread() {
 
     install_fh3_flames((char*)base);
     {
-        FH3Hook* hp = g_api->hook_function(g_mod, "sqlite3LockAndPrepare", (char*)base + 0x440C0,
-                                           (void*)detour_prepare, (void**)&g_orig_prepare);
-        if (!(hp && g_api->enable_hooks(g_mod, hp))) { g_orig_prepare = nullptr; g_api->log(g_mod, "Could not hook the SQL prepare function."); }
-    }
-    {
         FH3Hook* hc = g_api->hook_function(g_mod, "HUD controller update", (char*)base + 0xB26690,
                                            (void*)detour_hud_ctrl, (void**)&g_orig_hud_ctrl);
         if (!(hc && g_api->enable_hooks(g_mod, hc))) { g_orig_hud_ctrl = nullptr; g_api->log(g_mod, "Could not hook the HUD controller: the player's car is told apart by position only."); }
@@ -3572,46 +3023,6 @@ static void nitro_worker_thread() {
         g_api->log(g_mod, cm);
     }
 
-    if (NU_ENUM > 42) {
-        FH3Hook* h1 = g_api->hook_function(g_mod, "enum->column", (char*)base + 0x19D97E0, (void*)detour_enum_col, (void**)&g_orig_enum_col);
-        if (!(h1 && g_api->enable_hooks(g_mod, h1))) g_orig_enum_col = nullptr;
-        FH3Hook* h2 = g_api->hook_function(g_mod, "enum->list", (char*)base + 0x19D9820, (void*)detour_enum_list, (void**)&g_orig_enum_list);
-        if (!(h2 && g_api->enable_hooks(g_mod, h2))) g_orig_enum_list = nullptr;
-    {
-        static const uintptr_t rvas[8] = {0, 0, 0x38BCD0, 0x38D0B0, 0x16CC5B0, 0x1285E20, 0x19EA220, 0x19EA240};
-        static void* const dets[8] = {(void*)trace_detour<0>, (void*)trace_detour<1>, (void*)trace_detour<2>, (void*)trace_detour<3>, (void*)trace_detour<4>, (void*)trace_detour<5>, (void*)trace_detour<6>, (void*)trace_detour<7>};
-        for (int i = 0; i < 8; ++i) {
-            if (!rvas[i]) continue;
-            FH3Hook* h = g_api->hook_function(g_mod, k_tr_name[i], (char*)base + rvas[i], dets[i], (void**)&g_tr_orig[i]);
-            if (!(h && g_api->enable_hooks(g_mod, h))) g_tr_orig[i] = nullptr;
-        }
-    }
-        FH3Hook* h7 = g_api->hook_function(g_mod, "part add step", (char*)base + 0x16FAEF0, (void*)detour_add, (void**)&g_orig_add);
-        if (!(h7 && g_api->enable_hooks(g_mod, h7))) g_orig_add = nullptr;
-        FH3Hook* h8 = g_api->hook_function(g_mod, "parts differ?", (char*)base + 0x19CDBB0, (void*)detour_diff, (void**)&g_orig_diff);
-        if (!(h8 && g_api->enable_hooks(g_mod, h8))) g_orig_diff = nullptr;
-        FH3Hook* h9 = g_api->hook_function(g_mod, "part purchase", (char*)base + 0x36D360, (void*)detour_buy, (void**)&g_orig_buy);
-        if (!(h9 && g_api->enable_hooks(g_mod, h9))) g_orig_buy = nullptr;
-        FH3Hook* h10 = g_api->hook_function(g_mod, "shop commit", (char*)base + 0x4081A0, (void*)detour_commit, (void**)&g_orig_commit);
-        if (!(h10 && g_api->enable_hooks(g_mod, h10))) g_orig_commit = nullptr;
-        FH3Hook* h11 = g_api->hook_function(g_mod, "credits set (trace)", (char*)base + 0x337440, (void*)detour_credits, (void**)&g_orig_credits);
-        if (!(h11 && g_api->enable_hooks(g_mod, h11))) g_orig_credits = nullptr;
-        FH3Hook* h12 = g_api->hook_function(g_mod, "basket popup ctor (trace)", (char*)base + 0x16C26C0, (void*)detour_basket_popup, (void**)&g_orig_basket_popup);
-        if (!(h12 && g_api->enable_hooks(g_mod, h12))) g_orig_basket_popup = nullptr;
-        FH3Hook* h13 = g_api->hook_function(g_mod, "purchase list (trace)", (char*)base + 0x4194A0, (void*)detour_plist, (void**)&g_orig_plist);
-        if (!(h13 && g_api->enable_hooks(g_mod, h13))) g_orig_plist = nullptr;
-        FH3Hook* h14 = g_api->hook_function(g_mod, "abandon setup", (char*)base + 0x16C8C70, (void*)detour_abandon, (void**)&g_orig_abandon);
-        if (!(h14 && g_api->enable_hooks(g_mod, h14))) g_orig_abandon = nullptr;
-        install_basket_patch((uintptr_t)base);
-        FH3Hook* h5 = g_api->hook_function(g_mod, "A handler", (char*)base + 0x16DC050, (void*)detour_select, (void**)&g_orig_select);
-        if (!(h5 && g_api->enable_hooks(g_mod, h5))) g_orig_select = nullptr;
-        FH3Hook* h6 = g_api->hook_function(g_mod, "memcmp thunk", (char*)base + 0x1802D82, (void*)detour_memcmp, (void**)&g_orig_memcmp);
-        if (!(h6 && g_api->enable_hooks(g_mod, h6))) g_orig_memcmp = nullptr;
-        FH3Hook* h3 = g_api->hook_function(g_mod, "query builder A", (char*)base + 0x37E980, (void*)detour_qa, (void**)&g_orig_qa);
-        if (!(h3 && g_api->enable_hooks(g_mod, h3))) g_orig_qa = nullptr;
-        FH3Hook* h4 = g_api->hook_function(g_mod, "query builder B", (char*)base + 0x410750, (void*)detour_qb, (void**)&g_orig_qb);
-        if (!(h4 && g_api->enable_hooks(g_mod, h4))) g_orig_qb = nullptr;
-    }
     void* mgr_update = (void*)((uintptr_t)base + kFH3WorldUpdate);
     FH3Hook* hook_mgr = g_api->hook_function(g_mod, "CWorldCollObjMan::Update", mgr_update, (void*)detour_mgr_update, (void**)&g_orig_mgr_update);
     g_api->log(g_mod, hook_mgr && g_api->enable_hooks(g_mod, hook_mgr) ? "CWorldCollObjMan::Update hooked to find the player's car."
@@ -3994,7 +3405,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.82";
+    info.version          = "2.0.0-fh3.83";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
@@ -4009,30 +3420,14 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     // Initialize paths & load persistent settings from NitroSystemII.ini
     init_paths();
     load_config();
-    g_nu_enum = (int)GetPrivateProfileIntW(L"FH3", L"KitEnum", 47, g_ini_path);
-    if (api->api_version >= 2 && api->add_sql) {   // the Nitrous Kit rows (Engine > Custom upgrade)
-        if (nu_cfg.price[1] == 0) { nu_cfg.price[1] = 15000; nu_cfg.price[2] = 30000; nu_cfg.price[3] = 60000; }
-        std::string sql;
-        g_kit_strings_ok = api->api_version >= 10 && api->add_string_key != nullptr &&
-                           GetPrivateProfileIntW(L"FH3", L"KitStrings", 1, g_ini_path) != 0;
-        if (g_kit_strings_ok) fh3_kit_strings(api, g_mod);
-        fh3_install_icons(api, g_mod);
-        fh3_kit_sql(sql);
-        api->add_sql(g_mod, sql.c_str());
-    }
     // The garage upgrade (the Nitrous Kit part). Without it the mod has no way to know a car owns nitrous.
     // FH3: the garage upgrade isn't ported yet. Every car gets the stage in [FH3] Stage (1-3, default 2), with the
     // boosts from [Upgrade] as before.
     nu_load_config(g_ini_path, (int)(g_duration.load() + 0.5f));
+    if (nu_cfg.price[1] == 0) { nu_cfg.price[1] = 15000; nu_cfg.price[2] = 30000; nu_cfg.price[3] = 60000; }
+    fh3_register_kit(api);
     {
-        WritePrivateProfileStringW(L"FH3", L"Stage", nullptr, g_ini_path);
-        int stage = (int)GetPrivateProfileIntW(L"FH3", L"ForceStage", 0, g_ini_path);
-        if (stage < 0 || stage > 3) stage = 0;
-        wchar_t fv[4] = {(wchar_t)(L'0' + stage), 0};
-        WritePrivateProfileStringW(L"FH3", L"ForceStage", fv, g_ini_path);
-        g_force_stage = stage;
-        if (stage) nu_cur_level = stage;
-        else { long lg = (long)GetPrivateProfileIntW(L"FH3", L"LastGarage", 0, g_ini_path); if (lg > 0) nu_activate((unsigned)lg); }
+        for (const wchar_t* k : {L"Stage", L"ForceStage", L"KitEnum", L"KitStrings", L"LastGarage"}) WritePrivateProfileStringW(L"FH3", k, nullptr, g_ini_path);
         wchar_t buf[32] = {};
         // [FH3] PowerScale: the extra torque is (boost - 1) x PowerScale, so the default 2 gives +40 / +80 / +120%
         // torque on stages 1 / 2 / 3 (1 would be the bare 1.2 / 1.4 / 1.6x; tested 1 Nov: 1 felt weak). (PushScale was the old, constant-push setting.)
@@ -4053,7 +3448,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
         g_tipsrc_a.store((int)GetPrivateProfileIntW(L"FH3", L"TipSrcA", 0, g_ini_path));
         g_tipsrc_b.store((int)GetPrivateProfileIntW(L"FH3", L"TipSrcB", 0, g_ini_path));
         char msg[96];
-        snprintf(msg, sizeof msg, "FH3 build: Nitrous Kit stage %d (ForceStage=%d), boost %.1fx", nu_level(), g_force_stage, nu_boost(nu_level()));
+        snprintf(msg, sizeof msg, "FH3 build: Nitrous Kit stage %d, boost %.1fx", nu_level(), nu_boost(nu_level()));
         api->log(g_mod, msg);
     }
 
