@@ -3966,7 +3966,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "2.0.0-fh3.80";
+    info.version          = "2.0.0-fh3.81";
     info.github_repo      = nullptr;   // the FH3 port has no releases yet
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 0;
@@ -3981,12 +3981,12 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     // Initialize paths & load persistent settings from NitroSystemII.ini
     init_paths();
     load_config();
-    g_nu_enum = (int)GetPrivateProfileIntW(L"FH3", L"KitEnum", 26, g_ini_path);
+    g_nu_enum = (int)GetPrivateProfileIntW(L"FH3", L"KitEnum", 47, g_ini_path);
     if (api->api_version >= 2 && api->add_sql) {   // the Nitrous Kit rows (Engine > Custom upgrade)
         if (nu_cfg.price[1] == 0) { nu_cfg.price[1] = 15000; nu_cfg.price[2] = 30000; nu_cfg.price[3] = 60000; }
         std::string sql;
         g_kit_strings_ok = api->api_version >= 10 && api->add_string_key != nullptr &&
-                           GetPrivateProfileIntW(L"FH3", L"KitStrings", 0, g_ini_path) != 0;
+                           GetPrivateProfileIntW(L"FH3", L"KitStrings", 1, g_ini_path) != 0;
         if (g_kit_strings_ok) fh3_kit_strings(api, g_mod);
         fh3_kit_sql(sql);
         api->add_sql(g_mod, sql.c_str());
