@@ -426,6 +426,7 @@ static std::atomic<DWORD> g_frame_tid{0};  // game logic frame-step thread (debu
 static std::atomic<uint64_t> g_boosted_frames{0};
 static std::atomic<uint64_t> g_last_physics_tick{0};
 static void* g_player_cardynamics = nullptr;
+static std::atomic<uint64_t> g_last_drivecam_tick{0};   // a driving camera was asked for its view (not the garage, a photo or cinematic camera)
 static std::atomic<uint64_t> g_last_speedo_tick{0}; // HUD speedometer only ticks while driving with the HUD up
 
 // Telling the player's car from AI racers and traffic. Every simulated car has [+0x178] == 1, so that
@@ -2296,11 +2297,13 @@ static void fx_state(float* envelope_out, float* t_out) {
 
 static void shake_view_matrix(void* camera, float* m) {
     const float strength = g_camera_shake.load();
-    if (!camera || !m || !g_game_base || strength <= 0.0f) return;
+    if (!camera || !m || !g_game_base) return;
     const uintptr_t vtable = *static_cast<uintptr_t*>(camera) - reinterpret_cast<uintptr_t>(g_game_base);
     bool ours = false;
     for (uintptr_t v : k_shake_camera_vtables) ours |= v == vtable;
     if (!ours) return;
+    g_last_drivecam_tick.store(GetTickCount64());   // a driving camera (driver, hood, bumper, chase) is the one on screen
+    if (strength <= 0.0f) return;
 
     float envelope = 0.0f, t = 0.0f;
     fx_state(&envelope, &t);
@@ -3151,18 +3154,19 @@ static void nitro_worker_thread() {
         // Map or Loading) and the HUD speedometer is ticking (not Garage or a car meet lobby).
         uint64_t now_ms = GetTickCount64();
         bool physics_active = (now_ms - g_last_physics_tick.load()) < 200;
-        // The garage, the autoshow and menus keep the car simulated too (and the player's car found), but the speedometer
-        // HUD only updates while you are driving with the HUD up: that is the "driving" signal.
-        const bool speedo_alive = !g_orig_speedo_tick || (now_ms - g_last_speedo_tick.load()) < 250;   // no hook: not required
-        bool driving = physics_active && (now_ms - g_player_pos_tick.load()) < 200 && speedo_alive;
+        // The garage, the autoshow and menus keep the car simulated too (and the player's car found), but their camera is
+        // not one of the driving cameras (driver, hood, bumper, chase): the driving camera being asked for its view is the
+        // "driving" signal. It does not depend on the HUD, so nitro works with the HUD switched off.
+        const bool cam_alive = !(g_orig_view_mounted || g_orig_view_chase) || (now_ms - g_last_drivecam_tick.load()) < 250;   // no camera hook: not required
+        bool driving = physics_active && (now_ms - g_player_pos_tick.load()) < 200 && cam_alive;
         {
             static int prev_driving = -1, flips = 0;
             if ((int)driving != prev_driving && flips < 60) {
                 prev_driving = (int)driving;
                 ++flips;
-                snprintf(log_buf, sizeof(log_buf), "driving=%d (physics age %llu ms, car position age %llu ms, speedometer age %llu ms)", driving ? 1 : 0,
+                snprintf(log_buf, sizeof(log_buf), "driving=%d (physics age %llu ms, car position age %llu ms, driving camera age %llu ms)", driving ? 1 : 0,
                          (unsigned long long)(now_ms - g_last_physics_tick.load()), (unsigned long long)(now_ms - g_player_pos_tick.load()),
-                         (unsigned long long)(now_ms - g_last_speedo_tick.load()));
+                         (unsigned long long)(now_ms - g_last_drivecam_tick.load()));
                 g_api->log(g_mod, log_buf);
             }
         }
