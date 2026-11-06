@@ -2151,6 +2151,30 @@ static uint64_t detour_fh3_carobj_update(void* self, float dt) {
         if (g_hud_trusted.load()) { if (!hud_match) return r; dyn = (char*)iface - 0x4B0; }
         else if (!(dyn && iface == dyn + 0x4B0)) return r;
     }
+    {   // Is this the garage car the Nitrous Kit stage belongs to? The game puts the player into another car now and then (a
+        // mission loaner): the platform records each garage car's model, the Car knows the model it was built from.
+        static uint64_t last_check = 0;
+        const uint64_t t = GetTickCount64();
+        if (t - last_check >= 250 && g_api && g_api->api_version >= 12 && g_api->upgrade_car_model) {
+            last_check = t;
+            int32_t have = 0;
+            char* spec = readable_ptr(car + 0x110, 8) ? *(char**)(car + 0x110) : nullptr;
+            if (spec && readable_ptr(spec + 0x30, 4)) have = *(int32_t*)(spec + 0x30);
+            const int32_t want = g_api->upgrade_car_model((int32_t)nu_active_garage);
+            // the spec holds the Data_Car id (model * 1000 + variant) or the model itself: compare the model
+            auto model = [](int32_t v) { return v >= 100000 ? v / 1000 : v; };
+            const bool foreign = have > 0 && want > 0 && model(have) != model(want);
+            static int last_foreign = -1;
+            if ((int)foreign != last_foreign) {
+                last_foreign = (int)foreign;
+                char b[160];
+                snprintf(b, sizeof b, "Nitrous Kit: driven car model %d, garage car %u is model %d: %s", have, (unsigned)nu_active_garage, want,
+                         foreign ? "another car (loaner), no nitro" : "same car");
+                g_api->log(g_mod, b);
+            }
+            nu_foreign_car = foreign ? 1 : 0;
+        }
+    }
     void* deferred = *(void**)(car + kFH3CarDeferred);
     if (g_fh3_player_car.exchange(car) != car || g_fh3_player_deferred.load() != deferred) {
         g_fh3_player_deferred.store(deferred);

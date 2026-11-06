@@ -436,6 +436,7 @@ static int nu_init(const FH3ModApi *api, FH3Mod *mod, const wchar_t *ini, int se
 }
 
 /* what the rest of the mod reads */
-static int nu_level(void) { LONG v = nu_cur_level; return v < 0 ? 0 : (v >= NU_LEVELS ? NU_LEVELS - 1 : (int)v); }
+static volatile LONG nu_foreign_car;   /* 1 = the car being driven is not the garage car the stage belongs to (a mission loaner) */
+static int nu_level(void) { if (nu_foreign_car) return 0; LONG v = nu_cur_level; return v < 0 ? 0 : (v >= NU_LEVELS ? NU_LEVELS - 1 : (int)v); }
 static float nu_boost(int level) { return level <= 0 ? 1.0f : (float)nu_cfg.tenths[level >= NU_LEVELS ? NU_LEVELS - 1 : level] / 10.0f; }
 #endif
