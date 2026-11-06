@@ -524,10 +524,18 @@ static void calibrate_position_offset(void* car, uint64_t now) {
 
 // True if this car is the one nearest the player position. Until the offset is learned, falls back to
 // the old behaviour (any simulated car).
+static bool readable_ptr(const void* p, size_t n);
 static std::atomic<void*> g_hud_player{nullptr};   // the car interface the HUD reads (rpm, gear): the player's, whatever is near
 static std::atomic<bool> g_hud_trusted{false};
 static bool is_player_car(void* car, uint64_t now) {
-    if (g_hud_trusted.load()) { void* h = g_hud_player.load(); return h && (char*)car + 0x4B0 == (char*)h; }
+    if (g_hud_trusted.load()) {
+        // FH3: the HUD's pointer is the Car object, which keeps the dynamics' interface (car + 0x4B0) at +0x71E8; the
+        // older builds had the interface itself there.
+        void* h = g_hud_player.load();
+        if (!h) return false;
+        if ((char*)car + 0x4B0 == (char*)h) return true;
+        return readable_ptr((char*)h + 0x71E8, 8) && *(void**)((char*)h + 0x71E8) == (char*)car + 0x4B0;
+    }
     int off = g_pos_offset.load();
     if (off < 0) return true;
     if (now - g_player_pos_tick.load() > 200) return false;
@@ -1855,6 +1863,7 @@ static void fh3_compare_locator_tips(const uint8_t* msg) {
 
 static uint64_t detour_fh3_post(void* deferred, const void* tips) {
     g_fh3_post_calls.fetch_add(1, std::memory_order_relaxed);
+    if (g_fh3_car_drive_fwd.load(std::memory_order_relaxed)) return g_orig_fh3_post(deferred, tips);   // the Car update owns the flames
     if (!g_fh3_in_drive.load() && tips && readable_ptr(tips, kFH3TipBytes)) {
         const uint8_t* t = (const uint8_t*)tips;
         uint32_t mask = fh3_tip_mask(t);
@@ -2052,6 +2061,7 @@ static std::string fh3_icon(const char* slot, int large) {
 }
 // The platform tells which stage the car being driven has (and when it changes).
 static void fh3_on_stage(void*, uint32_t garage, int stage) {
+    char b[96]; snprintf(b, sizeof b, "Nitrous Kit: the driven car is garage %u, stage %d", (unsigned)garage, stage); g_api->log(g_mod, b);
     nu_active_garage = garage;
     nu_cur_level = stage < 0 ? 0 : (stage >= NU_LEVELS ? NU_LEVELS - 1 : stage);
 }
@@ -2127,17 +2137,19 @@ static uint64_t detour_fh3_carobj_update(void* self, float dt) {
     char* car = (char*)self;
     char* dyn = (char*)g_player_cardynamics;
     if (!car) return r;
-    {   // who is the player's Car? The HUD knows. Trust it once it has agreed with the proximity rule a hundred times.
+    {   // who is the player's Car? The HUD knows: its weak pointer (+0x120 of the controller) is the Car object itself
+        // (the log showed "HUD car" == "the player's Car"; older code compared it with the Car's interface and never matched,
+        // so the choice stayed on the proximity guess, which picks a neighbouring car now and then).
         void* iface = *(void**)(car + kFH3CarDynIface);
         void* hud = g_hud_player.load();
-        static int agree = 0, differ = 0;
-        const bool prox = dyn && iface == dyn + 0x4B0;
-        if (!g_hud_trusted.load() && prox && hud) {
-            if (iface == hud) { if (++agree >= 100 && differ == 0) { g_hud_trusted.store(true); g_api->log(g_mod, "flames: the HUD's player car matches the Car's interface; using it to tell the player's car from the others."); } }
-            else if (++differ <= 3) { char b[160]; snprintf(b, sizeof b, "flames: HUD car %p differs from the Car's interface %p (dynamics %p)", hud, iface, dyn); g_api->log(g_mod, b); }
+        static int agree = 0;
+        const bool hud_match = hud && ((void*)car == hud || iface == hud);
+        if (!g_hud_trusted.load() && hud_match && ++agree >= 20) {
+            g_hud_trusted.store(true);
+            g_api->log(g_mod, "flames: the HUD's player car found; using it to tell the player's car from the others.");
         }
-        if (g_hud_trusted.load()) { if (!hud || iface != hud) return r; dyn = (char*)iface - 0x4B0; }
-        else if (!prox) return r;
+        if (g_hud_trusted.load()) { if (!hud_match) return r; dyn = (char*)iface - 0x4B0; }
+        else if (!(dyn && iface == dyn + 0x4B0)) return r;
     }
     void* deferred = *(void**)(car + kFH3CarDeferred);
     if (g_fh3_player_car.exchange(car) != car || g_fh3_player_deferred.load() != deferred) {
@@ -2171,6 +2183,20 @@ static uint64_t detour_fh3_carobj_update(void* self, float dt) {
             char b[160];
             snprintf(b, sizeof b, "flames: the Car %p resolved its exhaust locators: mask %02X", car, mask);
             g_api->log(g_mod, b);
+        }
+    }
+    {   // The game can empty the Car's exhaust pointers again after a backfire, so a tick may find none. Keep the last good set
+        // of tips for this Car and use it until the pointers are there again (dropped when the Car changes).
+        alignas(16) static uint8_t good[kFH3TipBytes];
+        static uint32_t good_mask = 0;
+        static void* good_car = nullptr;
+        if (mask) {
+            memcpy(good, msg, kFH3TipBytes);
+            good_mask = mask;
+            good_car = car;
+        } else if (good_car == car && good_mask) {
+            memcpy(msg, good, kFH3TipBytes);
+            mask = good_mask;
         }
     }
     uint32_t forced = g_fh3_mask_forced.load();
