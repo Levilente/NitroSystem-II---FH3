@@ -766,6 +766,41 @@ static std::atomic<uint32_t> g_fh3_mask_pres{0};
 static std::atomic<uint32_t> g_fh3_mask{0};                 // exhaust tips the game flagged for the player's car
 static void update_torque(char* car);
 
+
+// ---- PROBE (temporary): which field of the simulated car follows the right trigger while the car is not driven --------
+// In the garage / upgrade shop the car is simulated but not driven. Hold RT there, release it, and the offsets whose
+// value differs are logged (floats), to find the throttle input. Removed once the rev feature is built.
+static void probe_rev(char* car) {
+    static char held[0x2000], rel[0x2000];
+    static bool have_h = false, have_r = false;
+    static uint64_t next_snap = 0, next_log = 0;
+    static int logged = 0;
+    static unsigned tick = 0;
+    if ((++tick & 7) != 0 || logged >= 8) return;
+    const uint64_t now = GetTickCount64();
+    if (now - g_last_drivecam_tick.load() < 1000) { have_h = have_r = false; return; }   // driving: not now
+    XINPUT_STATE st{};
+    xin::load();
+    if (!xin::get_state || xin::get_state(0, &st) != ERROR_SUCCESS) return;
+    const BYTE rt = st.Gamepad.bRightTrigger;
+    if (now < next_snap) return;
+    if (rt > 200)      { memcpy(held, car, sizeof held); have_h = true; next_snap = now + 400; }
+    else if (rt < 10)  { memcpy(rel, car, sizeof rel);   have_r = true; next_snap = now + 400; }
+    if (!(have_h && have_r) || now < next_log || rt < 200) return;
+    next_log = now + 3000; ++logged;
+    char line[200]; int n = 0, lines = 0;
+    std::string out = "REV PROBE: fields that differ between RT held and released:";
+    for (int o = 0; o + 4 <= (int)sizeof held && lines < 70; o += 4) {
+        uint32_t a, b; memcpy(&a, held + o, 4); memcpy(&b, rel + o, 4);
+        if (a == b) continue;
+        float fa, fb; memcpy(&fa, &a, 4); memcpy(&fb, &b, 4);
+        n = snprintf(line, sizeof line, " +0x%X(%g->%g)", o, (double)fb, (double)fa);
+        if (!isfinite(fa) || !isfinite(fb) || fabsf(fa) > 1e7f || fabsf(fb) > 1e7f) n = snprintf(line, sizeof line, " +0x%X(%08X->%08X)", o, b, a);
+        out += line; ++lines;
+    }
+    g_api->log(g_mod, out.c_str());
+}
+
 static uint64_t detour_release(void* self) {
     char* car = (char*)self - kFH3CarSecondaryThis;
     static LARGE_INTEGER freq{};
@@ -781,6 +816,7 @@ static uint64_t detour_release(void* self) {
     if (dt > 0.05f) dt = 1.0f / 360.0f;
     nitro_tick(car, dt);
     update_torque(car);
+    if (car == g_player_cardynamics) probe_rev(car);
     t_fh3_car = nullptr;
     if (car == g_player_cardynamics) fh3_drive_flames();
     return g_orig_release(self);
