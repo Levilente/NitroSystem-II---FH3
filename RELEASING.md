@@ -13,6 +13,6 @@ git push origin v1.0.0
 gh release create v1.0.0 dist/NitroSystemII.dll --title "NitroSystem II for FH3 1.0.0" --notes-file release-notes.md
 ```
 
-`release-notes.md` can be the matching section of [CHANGELOG.md](CHANGELOG.md) plus the requirements line from the README (FH3 Mod Platform 1.0.7 or newer). Do not attach source archives, ini files or anything else; GitHub adds the source zip by itself.
+`release-notes.md` can be the matching section of [CHANGELOG.md](CHANGELOG.md) plus the requirements line from the README (FH3 Mod Platform 1.0.0 or newer). Do not attach source archives, ini files or anything else; GitHub adds the source zip by itself.
 
 The DLL is build output and is listed in `.gitignore`; it is never committed.

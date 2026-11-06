@@ -1,5 +1,5 @@
 #ifndef FH3MOD_PLATFORM_VERSION
-#define FH3MOD_PLATFORM_VERSION "1.0.7"
+#define FH3MOD_PLATFORM_VERSION "1.0.0"
 #endif
 #include "fh3mod.h"
 #include "legacy_files.h"
