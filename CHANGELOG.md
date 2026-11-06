@@ -12,6 +12,7 @@ First release for **Forza Horizon 3**, on the [FH3 Mod Platform](https://github.
 - Camera shake, wider field of view, blue vignette and speed lines (each configurable), boost and stop sounds, controller rumble.
 - Refill on race start / car change / fast travel, refund on rewind.
 - No nitro in a car that is not the garage car the kit belongs to (mission loaners).
+- A car chosen at an event's car select has its nitro from the start (it was taken for a loaner until the game saved it as the driven car; needs platform API 14).
 - Nitro works only while you are driving (driving camera), not in the garage, menus or photo mode, and does not depend on the HUD being visible.
 - The HUD is ready from the first frame of a fresh start.
 - Settings on **Pause > MODS**.

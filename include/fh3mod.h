@@ -33,7 +33,7 @@
 extern "C" {
 #endif
 
-#define FH3MOD_API_VERSION 12
+#define FH3MOD_API_VERSION 14
 
 #ifdef __cplusplus
 #define FH3MOD_EXPORT extern "C" __declspec(dllexport)
@@ -53,6 +53,7 @@ typedef struct FH3PageRow FH3PageRow;
 /* A title-screen entry (API 9), defined below FH3ModApi. */
 typedef struct FH3TitleEntry FH3TitleEntry;
 typedef struct FH3Hotkey FH3Hotkey;
+typedef struct FH3TuningRow FH3TuningRow;
 
 /* The CPU's registers at an instruction hook (API 7): see hook_instruction.
    rsp is what it was at the hooked instruction; changing it has no effect. */
@@ -124,7 +125,12 @@ typedef struct FH3UpgradeDef {
     FH3UpgradeStageFn on_stage;   /* may be NULL */
     void* user;
     int32_t preferred_slot;       /* -1 = any; a mod moving its old upgrade over asks for the slot it had (0 = the first) */
+    /* (platform 1.0.0, API 12; may be left out: a definition without it is accepted)
+       the game part whose shop camera this upgrade's list uses, as its part enum: 10 front rims, 11 rear rims,
+       8 tire compound, 38/39 front/rear tire width, ...; 0 = the area's default camera */
+    int32_t camera_part;
 } FH3UpgradeDef;
+#define FH3_UPGRADEDEF_SIZE_V11 ((uint32_t)offsetof(FH3UpgradeDef, camera_part))
 
 typedef struct FH3ModApi {
     uint32_t size;                /* sizeof(FH3ModApi) as the platform knows it */
@@ -565,7 +571,41 @@ typedef struct FH3ModApi {
        can compare it with the model of the car it finds being driven: when they differ, the game has put the
        player in another car (a loaner in a mission), and the garage car's upgrades don't apply. */
     int32_t (*upgrade_car_model)(int32_t garage);
+    /* ==== API version 13: check api_version >= 13 ======================== */
+
+    /* A slider row of your own on a page of the garage's tuning menu (Springs: after Ride Height), laid out like the
+       game's own tuning sliders. The row is written into the page when the tuning menu is built, so add rows from
+       fh3mod_init. See FH3TuningRow. Returns 1 if added, 0 if not (the log says why). Up to 8 rows from every mod. */
+    int (*add_tuning_row)(FH3Mod* mod, const struct FH3TuningRow* row);
+    /* ==== API version 14: check api_version >= 14 ======================== */
+
+    /* Which of the player's cars is a car with this Data_Car id (the number in the car's spec, model * 1000 + variant,
+       or the model itself)? Returns its garage id, or 0 when it isn't one of the player's cars (a mission loaner, an
+       AI car). The driven car's garage id wins when it is that model; otherwise the player's car of that model the
+       game read last (within a minute: an event's car select reads the chosen car), or, with FH3MOD_CAR_IS_PLAYERS,
+       the player's car of that model even without such a read. FH3MOD_CAR_MAKE_DRIVEN makes the answer the driven
+       car (upgrade_active_garage, the stage callbacks run). Use it when the game builds or drives a car: the driven
+       garage id the platform learns from the game's statements can lag behind a car switch by several seconds. */
+    int32_t (*upgrade_garage_for_car)(int32_t car_id, uint32_t flags);
 } FH3ModApi;
+
+#define FH3MOD_CAR_MAKE_DRIVEN 1u   /* upgrade_garage_for_car: make the car found the driven car */
+#define FH3MOD_CAR_IS_PLAYERS  2u   /* upgrade_garage_for_car: the caller knows this is the car the player drives */
+
+/* One slider row on the tuning menu (API 13). All callbacks run on the game's UI thread: keep them short, don't call
+   into the game from them. */
+struct FH3TuningRow {
+    uint32_t size;                 /* sizeof(FH3TuningRow) */
+    const char* key;               /* unique within your mod: letters, digits and '_' */
+    const char* label;             /* UTF-8, at the left of the row: "Airride drop (cm)" */
+    const char* help;              /* UTF-8, the description shown while the row is selected; may be NULL */
+    float min, max, step;          /* the slider's range and step */
+    int decimals;                  /* digits after the point in the number at the right */
+    float (*get)(void* user);      /* the value to show for the car being tuned */
+    void (*set)(void* user, float value);   /* the player moved the slider (already on a step, inside the range) */
+    int (*visible)(void* user);    /* 1 = show the row for the car being tuned, 0 = hide it; may be NULL (always shown) */
+    void* user;                    /* passed to every callback */
+};
 
 #define FH3_TABLE_UPGRADES 0x968719E9u      /* Upgrades.str: Upgrades.Name / Description */
 #define FH3_TABLE_UPGRADETYPES 0x07710821u  /* UpgradeTypes.str: UpgradeTypes.Name / Description */

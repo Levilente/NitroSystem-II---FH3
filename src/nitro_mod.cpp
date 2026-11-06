@@ -2164,7 +2164,13 @@ static uint64_t detour_fh3_carobj_update(void* self, float dt) {
             const int32_t want = g_api->upgrade_car_model((int32_t)nu_active_garage);
             // the spec holds the Data_Car id (model * 1000 + variant) or the model itself: compare the model
             auto model = [](int32_t v) { return v >= 100000 ? v / 1000 : v; };
-            const bool foreign = have > 0 && want > 0 && model(have) != model(want);
+            bool foreign = have > 0 && want > 0 && model(have) != model(want);
+            // The driven garage id can lag behind a car switch (an event's car select): ask the platform which of the
+            // player's cars this is; it makes that car the driven one (its stage arrives through the stage callback).
+            if (have > 0 && (foreign || want <= 0) && g_api->api_version >= 14 && g_api->upgrade_garage_for_car) {
+                const int32_t g = g_api->upgrade_garage_for_car(have, FH3MOD_CAR_MAKE_DRIVEN | FH3MOD_CAR_IS_PLAYERS);
+                if (g > 0) foreign = false;
+            }
             static int last_foreign = -1;
             if ((int)foreign != last_foreign) {
                 last_foreign = (int)foreign;
