@@ -37,7 +37,7 @@ NitroSystem II is a continuation of **[NitroSystem](https://github.com/qiangqian
 | What | Version |
 |---|---|
 | Forza Horizon 3 on PC with the **Azimuth** launcher | Xbox One build 1.0.125.0 (the one the platform targets) |
-| **[FH3 Mod Platform](https://github.com/Levilente/FH3_ModPlatform)** | **1.0.0 or newer** (API 11, needed for the upgrade bridge) |
+| **[FH3 Mod Platform](https://github.com/Levilente/FH3_ModPlatform)** | **1.0.7 or newer** (API 12; the upgrade bridge needs 1.0.1+ so the kit does not overwrite the car's tuning, 1.0.5+ for the credit check and basket) |
 
 The platform is the `DWrite.dll` (and `d3dcompiler_47.dll`) next to `azimuth.exe`. If you use any other platform-based mod you already have it; otherwise download the platform zip from its [releases page](https://github.com/Levilente/FH3_ModPlatform/releases) and follow its README.
 

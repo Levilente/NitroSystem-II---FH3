@@ -2,7 +2,7 @@
 
 ## 1.0.0
 
-First release for **Forza Horizon 3**, on the [FH3 Mod Platform](https://github.com/Levilente/FH3_ModPlatform) 1.0.0 (API 11). A port of NitroSystem II for FH2 (2.0.0), itself a continuation of [qiangqiang101's NitroSystem](https://github.com/qiangqiang101/NitroSystem).
+First release for **Forza Horizon 3**, on the [FH3 Mod Platform](https://github.com/Levilente/FH3_ModPlatform) 1.0.7 (API 12). A port of NitroSystem II for FH2 (2.0.0), itself a continuation of [qiangqiang101's NitroSystem](https://github.com/qiangqiang101/NitroSystem).
 
 - Nitro is a garage upgrade: **Garage > Upgrades > Engine > Nitrous Kit** (Stock, Stage 1, Stage 2, Stage 3), bought per owned car, through the platform's upgrade bridge. No kit, no nitro.
 - Stage prices (3 000 / 6 000 / 12 000 CR) and boosts (1.2x / 1.4x / 1.6x) are configurable in `fh3-mods\NitroSystemII.ini`.
@@ -11,5 +11,6 @@ First release for **Forza Horizon 3**, on the [FH3 Mod Platform](https://github.
 - NOS gauge on the analog and digital speedometers, hidden on cars without a kit; two HUD themes.
 - Camera shake, wider field of view, blue vignette and speed lines (each configurable), boost and stop sounds, controller rumble.
 - Refill on race start / car change / fast travel, refund on rewind.
+- No nitro in a car that is not the garage car the kit belongs to (mission loaners).
 - Settings on **Pause > MODS**.
 - Update checks through the platform.
