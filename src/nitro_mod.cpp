@@ -3052,7 +3052,6 @@ static void nitro_worker_thread() {
                                            (void*)detour_speedo_tick, (void**)&g_orig_speedo_tick);
         g_api->log(g_mod, hs && g_api->enable_hooks(g_mod, hs) ? "Speedometer hooked (NOS gauge)."
                                                               : "Could not hook the speedometer: no NOS gauge.");
-        apply_hud_theme();
     }
     {
         struct H { const char* name; uintptr_t rva; void* detour; void** orig; };
@@ -3152,8 +3151,21 @@ static void nitro_worker_thread() {
         // Map or Loading) and the HUD speedometer is ticking (not Garage or a car meet lobby).
         uint64_t now_ms = GetTickCount64();
         bool physics_active = (now_ms - g_last_physics_tick.load()) < 200;
-        // FH3: no speedometer hook yet, so "driving" is the player's car being simulated
-        bool driving = physics_active && (now_ms - g_player_pos_tick.load()) < 200;
+        // The garage, the autoshow and menus keep the car simulated too (and the player's car found), but the speedometer
+        // HUD only updates while you are driving with the HUD up: that is the "driving" signal.
+        const bool speedo_alive = !g_orig_speedo_tick || (now_ms - g_last_speedo_tick.load()) < 250;   // no hook: not required
+        bool driving = physics_active && (now_ms - g_player_pos_tick.load()) < 200 && speedo_alive;
+        {
+            static int prev_driving = -1, flips = 0;
+            if ((int)driving != prev_driving && flips < 60) {
+                prev_driving = (int)driving;
+                ++flips;
+                snprintf(log_buf, sizeof(log_buf), "driving=%d (physics age %llu ms, car position age %llu ms, speedometer age %llu ms)", driving ? 1 : 0,
+                         (unsigned long long)(now_ms - g_last_physics_tick.load()), (unsigned long long)(now_ms - g_player_pos_tick.load()),
+                         (unsigned long long)(now_ms - g_last_speedo_tick.load()));
+                g_api->log(g_mod, log_buf);
+            }
+        }
 
         if (g_refund_on_rewind.load() || g_refill_on_start.load())
             nitro_hud_events(physics_active, (now_ms - g_last_speedo_tick.load()) < 200, now_ms);
@@ -3475,6 +3487,10 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     nu_load_config(g_ini_path, (int)(g_duration.load() + 0.5f));
     if (nu_cfg.price[1] == 0) { nu_cfg.price[1] = 15000; nu_cfg.price[2] = 30000; nu_cfg.price[3] = 60000; }
     fh3_register_kit(api);
+    // The speedometer file is handed over now, at start-up, not when the game code is ready: the platform drops overrides
+    // no mod has claimed by then, and the game loads the HUD once, before our hooks are in. Late, the gauge would only show
+    // after the HUD was next reloaded.
+    apply_hud_theme();
     {
         for (const wchar_t* k : {L"Stage", L"ForceStage", L"KitEnum", L"KitStrings", L"LastGarage"}) WritePrivateProfileStringW(L"FH3", k, nullptr, g_ini_path);
         wchar_t buf[32] = {};
