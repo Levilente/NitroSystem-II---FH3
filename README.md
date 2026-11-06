@@ -4,9 +4,9 @@ A **Fast & Furious style nitro** for **Forza Horizon 3** (Xbox One build on PC, 
 
 Hold **LB** (or any button you pick) to burn nitro: your car gets a strong push, blue flames shoot from the tailpipes, the speedometer gets a draining NOS gauge, the camera shakes, the field of view widens, a blue vignette pulses at the screen edges, speed lines streak past, the nitro roars and the controller rumbles.
 
-![Nitrous Kit in the garage](docs/images/nitrous-kit-menu.jpg)
-![Stage 1 Nitrous, owned](docs/images/nitrous-kit-stage1.jpg)
-![Nitro in action](docs/images/nitro-in-game.jpg)
+![Engine > Nitrous Kit in the garage](docs/images/nitrous-kit-menu.jpg)
+![The Race Nitrous Kit stage, 12,000 CR](docs/images/nitrous-kit-stage1.jpg)
+![Nitro in action: flames, NOS gauge on the speedometer](docs/images/nitro-in-game.jpg)
 
 ## Where it comes from
 
