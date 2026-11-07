@@ -103,6 +103,33 @@ static std::atomic<float> g_current_fuel{5.0f};
 static std::atomic<float> g_current_boost{1.0f};
 
 static wchar_t g_ini_path[MAX_PATH] = {0};
+// Logging: off by default (NitroSystemII.ini [Settings] Log=1 turns it on, for bug reports); lines about a problem
+// (a hook that failed, something not found) are always written.
+static int g_log_on = -1;
+static bool nitro_log_on() {
+    if (g_log_on < 0) {
+        if (g_ini_path[0] == L'\0') return false;
+        wchar_t buf[8] = L"";
+        GetPrivateProfileStringW(L"Settings", L"Log", L"", buf, 8, g_ini_path);
+        if (!buf[0]) WritePrivateProfileStringW(L"Settings", L"Log", L"0", g_ini_path);
+        g_log_on = (buf[0] && buf[0] != L'0') ? 1 : 0;
+    }
+    return g_log_on == 1;
+}
+static bool nitro_log_problem(const char* s) {
+    char low[256];
+    size_t i = 0;
+    for (; s[i] && i < sizeof low - 1; ++i) low[i] = (char)tolower((unsigned char)s[i]);
+    low[i] = 0;
+    static const char* const words[] = {"could not", "couldn't", "can't", "cannot", "failed", "not found", "no upgrade bridge", "update the", "error", "isn't the code", "not hooked"};
+    for (const char* w : words)
+        if (strstr(low, w)) return true;
+    return false;
+}
+static void nlog(const FH3ModApi* api, FH3Mod* mod, const char* line) {
+    if (api && mod && line && (nitro_log_on() || nitro_log_problem(line))) api->log(mod, line);
+}
+
 static wchar_t g_sound_boost_path[MAX_PATH] = {0};
 static wchar_t g_sound_stop_path[MAX_PATH] = {0};
 
@@ -116,7 +143,7 @@ static void init_paths() {
 }
 
 // The nitrous kit upgrade (garage part, 3 stages, kept per owned car): nu_upgrade.h
-static void nu_say(const char* t) { if (g_api && g_mod) g_api->log(g_mod, t); }
+static void nu_say(const char* t) { if (g_api && g_mod) nlog(g_api, g_mod, t); }
 #include "nu_upgrade.h"
 
 // Nitro button binding (NitroButton in the ini). Triggers are analog, so they get their own flags.
@@ -298,7 +325,7 @@ static void apply_hud_theme() {
 
     std::string xaml;
     if (!load_hud_resource(k_hud_xaml.resource, xaml)) {
-        g_api->log(g_mod, "HUD: the speedometer XAML is missing from the DLL.");
+        nlog(g_api, g_mod, "HUD: the speedometer XAML is missing from the DLL.");
         return;
     }
     if (!g_hud_hide.load())
@@ -311,18 +338,18 @@ static void apply_hud_theme() {
         replace_all(xaml, "#22EAF8FF", "#22FFFFB0");   // tip glow, radial
     }
     if (!g_api->set_file(g_mod, k_hud_xaml.media_path, xaml.data(), xaml.size()))
-        g_api->log(g_mod, "HUD: couldn't replace the speedometer XAML (see platform.log).");
+        nlog(g_api, g_mod, "HUD: couldn't replace the speedometer XAML (see platform.log).");
 
     if (NITRO_FH3) {   // FH3: the speedometer XAML (the NOS gauge) and, in build B, the FH2 outline picture
 #ifdef NITRO_FH3_ASSET_OUTLINE
         std::string png;
         const char* path = "UI/textures/data_bound/SpireHUD/HUD_Nos_Outline_Radial_Bar.swatchbin";
         if (load_hud_resource("HUD_Nos_Outline_Radial_Bar", png) && g_api->set_file(g_mod, path, png.data(), png.size()))
-            g_api->log(g_mod, "HUD: the FH2 NOS outline picture is handed to the game (build B).");
+            nlog(g_api, g_mod, "HUD: the FH2 NOS outline picture is handed to the game (build B).");
         else
-            g_api->log(g_mod, "HUD: couldn't hand over the FH2 NOS outline picture (see platform.log).");
+            nlog(g_api, g_mod, "HUD: couldn't hand over the FH2 NOS outline picture (see platform.log).");
 #endif
-        g_api->log(g_mod, "HUD: the NOS gauge XAML is in place (applies when the HUD is next loaded).");
+        nlog(g_api, g_mod, "HUD: the NOS gauge XAML is in place (applies when the HUD is next loaded).");
         return;
     }
     for (const auto& f : k_hud_files) {
@@ -334,10 +361,10 @@ static void apply_hud_theme() {
         if (!load_hud_resource(f.resource, data) || !g_api->set_file(g_mod, f.media_path, data.data(), data.size())) {
             char msg[256];
             snprintf(msg, sizeof(msg), "HUD: couldn't replace %s (see platform.log).", f.media_path);
-            g_api->log(g_mod, msg);
+            nlog(g_api, g_mod, msg);
         }
     }
-    g_api->log(g_mod, ff ? "HUD theme: Fast & Furious" : "HUD theme: Original (yellow NOS bar)");
+    nlog(g_api, g_mod, ff ? "HUD theme: Fast & Furious" : "HUD theme: Original (yellow NOS bar)");
 }
 
 // Older versions had players copy these files into mediaoverride by hand. The platform doesn't know about them, so
@@ -402,7 +429,7 @@ static void remove_legacy_files() {
     if (removed) {
         char msg[96];
         snprintf(msg, sizeof(msg), "Removed %d old HUD/flame file(s) from mediaoverride (now built into the mod).", removed);
-        g_api->log(g_mod, msg);
+        nlog(g_api, g_mod, msg);
     }
 }
 
@@ -412,7 +439,7 @@ static void apply_backfire_effect() {
     if (!g_api || !g_mod || g_api->api_version < 2) return;
     std::string xml;
     if (!load_hud_resource("Backfire", xml) || !g_api->set_file(g_mod, "Particles/Systems/Backfire.xml", xml.data(), xml.size()))
-        g_api->log(g_mod, "Couldn't replace the backfire effect (see platform.log); the exhaust flames will look stock.");
+        nlog(g_api, g_mod, "Couldn't replace the backfire effect (see platform.log); the exhaust flames will look stock.");
 }
 
 // Physics Hook: CCarDynamics::UpdateDynamics (RVA 0x12C1EA0 in Anthem)
@@ -721,7 +748,7 @@ static void probe_report(char* base) {
         }
         char b[96];
         snprintf(b, sizeof b, "probe: the player's car object is %p (%.1f m from the player position)", (void*)player_obj, best);
-        g_api->log(g_mod, b);
+        nlog(g_api, g_mod, b);
         g_player_cardynamics = (void*)player_obj;
     }
     static uint64_t prev[600];
@@ -743,7 +770,7 @@ static void probe_report(char* base) {
         n += snprintf(line + n, sizeof line - n, " %c%d->%llX x%llu", v ? 'S' : 'P', i,
                       (unsigned long long)(g_probe[k].target - (uint64_t)base), (unsigned long long)rows[a].d);
     }
-    g_api->log(g_mod, line);
+    nlog(g_api, g_mod, line);
 }
 
 // FH3: the physics runs at 360 Hz, and every tick takes a reference to each car's dynamics object and lets it go
@@ -1205,7 +1232,7 @@ static void fh3_log_tips(const char* what, const void* obj, const uint8_t* tips)
                       tips[i * kFH3TipSize + kFH3TipFlag] ? "*" : "", f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7], f[8], f[9],
                       f[10], f[11], f[12], f[13], f[14], f[15]);
     }
-    g_api->log(g_mod, b);
+    nlog(g_api, g_mod, b);
 }
 
 // Is this deferred presentation the player's car's? The car object holds a pointer to it; find where once.
@@ -1227,7 +1254,7 @@ static bool fh3_is_player_deferred(void* deferred) {
             g_fh3_deferred_off.store(o);
             char b[128];
             snprintf(b, sizeof b, "flames: the player's car keeps its presentation at +0x%X (%p)", o, deferred);
-            g_api->log(g_mod, b);
+            nlog(g_api, g_mod, b);
             return true;
         }
     }
@@ -1256,7 +1283,7 @@ static bool fh3_player_on_stack(void* deferred) {
                 char b[200];
                 snprintf(b, sizeof b, "flames: the player's car %p is on the stack of the backfire post (%p) at depth +0x%llX, pointer +0x%llX into it",
                          (void*)car, deferred, (unsigned long long)(p - lo), (unsigned long long)(v - (uintptr_t)car));
-                g_api->log(g_mod, b);
+                nlog(g_api, g_mod, b);
                 s_logged = true;
             }
             return true;
@@ -1281,7 +1308,7 @@ static bool fh3_player_on_stack(void* deferred) {
                 }
             }
         }
-        g_api->log(g_mod, b);
+        nlog(g_api, g_mod, b);
     }
     return false;
 }
@@ -1361,7 +1388,7 @@ static void fh3_find_pres(void* deferred) {
         if (n < (int)sizeof b - 90 && vt > base && vt < base + 0x5000000)
             n += snprintf(b + n, sizeof b - n, " [+0x%X %p vt game+0x%llX]", o, (void*)v, (unsigned long long)(vt - base));
     }
-    g_api->log(g_mod, b);
+    nlog(g_api, g_mod, b);
 }
 
 
@@ -1417,7 +1444,7 @@ static void fh3_learn_link(const char* pres, const char* car, const char* why) {
             ++logs;
             char b[200];
             snprintf(b, sizeof b, "link (%s): presentation %p at the player's car: %s", why, pres, ok ? "confirmed" : "DOES NOT MATCH, learning again");
-            g_api->log(g_mod, b);
+            nlog(g_api, g_mod, b);
         }
         if (ok) return;
         g_fh3_link_off.store(-1);
@@ -1461,7 +1488,7 @@ static void fh3_learn_link(const char* pres, const char* car, const char* why) {
     } else {
         n += snprintf(b + n, sizeof b - n, " -> no link");
     }
-    g_api->log(g_mod, b);
+    nlog(g_api, g_mod, b);
 }
 
 // Forgets what was learned about the player's presentation (another car, or the presentation was freed).
@@ -1495,7 +1522,7 @@ static uint64_t detour_fh3_queue(void* a, void* b, void* c, void* d, void* e, vo
                         g_fh3_pres.store(pres);
                         char buf[160];
                         snprintf(buf, sizeof buf, "flames: the player's presentation %p (CarPresentation %p) found through the link", deferred, (void*)pres);
-                        g_api->log(g_mod, buf);
+                        nlog(g_api, g_mod, buf);
                     }
                 }
             }
@@ -1543,7 +1570,7 @@ static void fh3_poll_pres() {
             const float* f = (const float*)(pres + kFH3PresTips + i * kFH3TipSize);
             n += snprintf(b + n, sizeof b - n, " [%d]%s %.2f,%.2f,%.2f pos %.2f,%.2f,%.2f,%.2f", i, (m >> i) & 1 ? "*" : "", f[0], f[1], f[2], f[12], f[13], f[14], f[15]);
         }
-        g_api->log(g_mod, b);
+        nlog(g_api, g_mod, b);
     }
 }
 
@@ -1572,7 +1599,7 @@ static void fh3_log_callers(const char* what) {
         n += snprintf(b + n, sizeof b - n, " %llX@%llX", (unsigned long long)(v - base), (unsigned long long)(p - lo));
         ++found;
     }
-    g_api->log(g_mod, b);
+    nlog(g_api, g_mod, b);
 }
 
 
@@ -1606,14 +1633,14 @@ static void fh3_find_tip_source(const uint8_t* msg) {
     int i0 = -1, j = -1;
     for (int i = 0; i < kFH3TipCount; ++i)
         if (msg[i * kFH3TipSize + kFH3TipFlag] && fh3_tip_valid(msg + i * kFH3TipSize)) { if (i0 < 0) i0 = i; else if (j < 0) j = i; }
-    if (i0 < 0) { g_api->log(g_mod, "tip source: no valid flagged tip in the message"); g_tipsrc_searched.store(false); return; }
+    if (i0 < 0) { nlog(g_api, g_mod, "tip source: no valid flagged tip in the message"); g_tipsrc_searched.store(false); return; }
     const uint8_t* hit = nullptr;
     char b[300];
     if (fh3_scan_for((const uint8_t*)car, 0x30000, msg, i0, j, &hit)) {
         int a = (int)((hit - (const uint8_t*)car) - (intptr_t)i0 * kFH3TipSize);
         g_tipsrc_kind.store(1); g_tipsrc_a.store(a); g_tipsrc_b.store(0);
         snprintf(b, sizeof b, "tip source: FOUND in the car object, entry 0 at car+0x%X (tip %d matched%s)", a, i0, j > i0 ? ", stride confirmed" : "");
-        g_api->log(g_mod, b);
+        nlog(g_api, g_mod, b);
     } else {
         for (int p = 0; p < 0x2000 && !hit; p += 8) {
             if (!readable_ptr(car + p, 8)) continue;
@@ -1623,12 +1650,12 @@ static void fh3_find_tip_source(const uint8_t* msg) {
                 int bb = (int)((hit - (const uint8_t*)q) - (intptr_t)i0 * kFH3TipSize);
                 g_tipsrc_kind.store(2); g_tipsrc_a.store(p); g_tipsrc_b.store(bb);
                 snprintf(b, sizeof b, "tip source: FOUND behind the pointer at car+0x%X, entry 0 at +0x%X (tip %d matched%s)", p, bb, i0, j > i0 ? ", stride confirmed" : "");
-                g_api->log(g_mod, b);
+                nlog(g_api, g_mod, b);
             }
         }
     }
     if (!hit) {
-        g_api->log(g_mod, "tip source: not found in the car object or one pointer level behind it (the tips are built on the fly)");
+        nlog(g_api, g_mod, "tip source: not found in the car object or one pointer level behind it (the tips are built on the fly)");
         fh3_compare_locator_tips(msg);
         return;
     }
@@ -1678,7 +1705,7 @@ static void fh3_walk_for_positions(std::vector<uintptr_t> roots, float x, float 
         n += snprintf(b + n, sizeof b - n, "tip position found: %s", names[root < 0 ? 0 : root > 2 ? 2 : root]);
         for (int k = (int)chain.size() - 2; k >= 0; --k) n += snprintf(b + n, sizeof b - n, " -> [+0x%X]", nodes[chain[k]].off);
         snprintf(b + n, sizeof b - n, " : at +0x%X (node %p)", hit_off, (void*)nodes[idx].p);
-        g_api->log(g_mod, b);
+        nlog(g_api, g_mod, b);
     };
     for (size_t i = 0; i < nodes.size() && nodes.size() < 40000 && hits < 40; ++i) {
         const uint8_t* base = (const uint8_t*)nodes[i].p;
@@ -1704,7 +1731,7 @@ static void fh3_walk_for_positions(std::vector<uintptr_t> roots, float x, float 
     }
     char b[1200];
     snprintf(b, sizeof b, "tip position search done: %zu objects visited, %d hits", nodes.size(), hits);
-    g_api->log(g_mod, b);
+    nlog(g_api, g_mod, b);
     if (first_hit_addr) {
         // the hit is the position (floats 12..14) of a 4x4 matrix: extend over the run of consecutive valid matrices
         uintptr_t m = first_hit_addr - 0x30, lo = m, hi = m;
@@ -1715,7 +1742,7 @@ static void fh3_walk_for_positions(std::vector<uintptr_t> roots, float x, float 
             const float* f = (const float*)a;
             n += snprintf(b + n, sizeof b - n, " [%d] %.2f,%.2f,%.2f", (int)((a - lo) / 0x40), f[12], f[13], f[14]);
         }
-        g_api->log(g_mod, b);
+        nlog(g_api, g_mod, b);
         // which pointer in the graph leads to the run (or just before / inside it)?
         int found = 0;
         for (size_t i = 0; i < nodes.size() && found < 8; ++i) {
@@ -1732,12 +1759,12 @@ static void fh3_walk_for_positions(std::vector<uintptr_t> roots, float x, float 
                     k += snprintf(t + k, sizeof t - k, "pointer to the matrices: %s", names[root < 0 ? 0 : root > 2 ? 2 : root]);
                     for (int q = (int)chain.size() - 2; q >= 0; --q) k += snprintf(t + k, sizeof t - k, " -> [+0x%X]", nodes[chain[q]].off);
                     snprintf(t + k, sizeof t - k, " : at +0x%X holds %p (= run start %+lld bytes)", (int)o, (void*)v, (long long)((intptr_t)v - (intptr_t)lo));
-                    g_api->log(g_mod, t);
+                    nlog(g_api, g_mod, t);
                     ++found;
                 }
             }
         }
-        if (!found) g_api->log(g_mod, "pointer to the matrices: none in the walked objects");
+        if (!found) nlog(g_api, g_mod, "pointer to the matrices: none in the walked objects");
     }
 }
 
@@ -1838,7 +1865,7 @@ static void fh3_dump_locators() {
         const char* shortnm = strncmp(nm, "carLocator_", 11) == 0 ? nm + 11 : nm;
         n += snprintf(b + n, sizeof b - n, " [+0x%X %s %s%.2f,%.2f,%.2f]", loc[i].off, shortnm, fh3_tip_valid(loc[i].block + 0x70) ? "" : "INVALID ", f[12], f[13], f[14]);
     }
-    g_api->log(g_mod, b);
+    nlog(g_api, g_mod, b);
 }
 
 // At the game's first real backfire: how close is what the locators give to the game's own message? (log, once per car)
@@ -1857,7 +1884,7 @@ static void fh3_compare_locator_tips(const uint8_t* msg) {
     char b[240];
     snprintf(b, sizeof b, "locator tips: %s, built mask %02X vs the game's %02X, largest difference in the shared tips %.5f -> %s",
              ok ? "built" : "could not build", m, real, worst, (ok && m == real && worst < 1e-3f) ? "MATCH" : "differs");
-    g_api->log(g_mod, b);
+    nlog(g_api, g_mod, b);
     static int dumps = 0;
     if (!(ok && m == real) && dumps < 3) { ++dumps; fh3_dump_locators(); }
 }
@@ -1931,7 +1958,7 @@ static void fh3_drive_flames() {
     if (!deferred) return;
     if (!fh3_deferred_alive(deferred)) {             // the car was swapped or removed: its presentation is gone, learn the new one
         fh3_forget_player_pres();
-        g_api->log(g_mod, "flames: the player's presentation went away (another car?); it will be found again.");
+        nlog(g_api, g_mod, "flames: the player's presentation went away (another car?); it will be found again.");
         return;
     }
     {   // the deferred presentation can stay while the car behind it changes: follow its CarPresentation (+0x18 of the outer object)
@@ -1967,7 +1994,7 @@ static void fh3_drive_flames() {
                     dumped = built_for; ++ndumps;
                     char b[120];
                     snprintf(b, sizeof b, "locator tips: built mask %02X for CarPresentation %p:", built_mask, built_for);
-                    g_api->log(g_mod, b);
+                    nlog(g_api, g_mod, b);
                     fh3_dump_locators();
                 }
             }
@@ -2050,7 +2077,7 @@ static void fh3_install_icons(const FH3ModApi* api, FH3Mod* mod) {
     }
     char msg[96];
     snprintf(msg, sizeof msg, "upgrade icons handed to the game: %d/%d", ok, total);
-    api->log(mod, msg);
+    nlog(api, mod, msg);
 }
 // An icon path: the mod's own picture when icons/<slot>.png exists, else "" (the platform uses the game's own).
 static std::string fh3_icon(const char* slot, int large) {
@@ -2062,7 +2089,7 @@ static std::string fh3_icon(const char* slot, int large) {
 }
 // The platform tells which stage the car being driven has (and when it changes).
 static void fh3_on_stage(void*, uint32_t garage, int stage) {
-    char b[96]; snprintf(b, sizeof b, "Nitrous Kit: the driven car is garage %u, stage %d", (unsigned)garage, stage); g_api->log(g_mod, b);
+    char b[96]; snprintf(b, sizeof b, "Nitrous Kit: the driven car is garage %u, stage %d", (unsigned)garage, stage); nlog(g_api, g_mod, b);
     nu_active_garage = garage;
     nu_cur_level = stage < 0 ? 0 : (stage >= NU_LEVELS ? NU_LEVELS - 1 : stage);
 }
@@ -2082,10 +2109,10 @@ static void fh3_import_old_cars(const FH3ModApi* api, int handle) {
         ++n;
     }
     WritePrivateProfileStringW(L"FH3", L"BridgeImported", L"1", g_ini_path);
-    char msg[96]; snprintf(msg, sizeof msg, "moved the stages of %d car(s) to the platform", n); api->log(g_mod, msg);
+    char msg[96]; snprintf(msg, sizeof msg, "moved the stages of %d car(s) to the platform", n); nlog(api, g_mod, msg);
 }
 static void fh3_register_kit(const FH3ModApi* api) {
-    if (api->api_version < 11 || !api->register_upgrade) { api->log(g_mod, "The platform has no upgrade bridge (API 11): no Nitrous Kit in the garage. Update the FH3 mod platform."); return; }
+    if (api->api_version < 11 || !api->register_upgrade) { nlog(api, g_mod, "The platform has no upgrade bridge (API 11): no Nitrous Kit in the garage. Update the FH3 mod platform."); return; }
     fh3_install_icons(api, g_mod);
     static std::wstring names[NU_LEVELS], descs[NU_LEVELS], tname, tdesc;
     static std::string ic[NU_LEVELS], icl[NU_LEVELS], kic, kicl;
@@ -2115,7 +2142,7 @@ static void fh3_register_kit(const FH3ModApi* api) {
     d.preferred_slot = 0;   // the slot (part enum 47) this upgrade always had, so earlier saves keep working
     g_bridge_handle = api->register_upgrade(g_mod, &d);
     char msg[80]; snprintf(msg, sizeof msg, "Nitrous Kit registered on the upgrade bridge (slot %d)", g_bridge_handle);
-    api->log(g_mod, msg);
+    nlog(api, g_mod, msg);
     if (g_bridge_handle >= 0) fh3_import_old_cars(api, g_bridge_handle);
 }
 
@@ -2147,7 +2174,7 @@ static uint64_t detour_fh3_carobj_update(void* self, float dt) {
         const bool hud_match = hud && ((void*)car == hud || iface == hud);
         if (!g_hud_trusted.load() && hud_match && ++agree >= 20) {
             g_hud_trusted.store(true);
-            g_api->log(g_mod, "flames: the HUD's player car found; using it to tell the player's car from the others.");
+            nlog(g_api, g_mod, "flames: the HUD's player car found; using it to tell the player's car from the others.");
         }
         if (g_hud_trusted.load()) { if (!hud_match) return r; dyn = (char*)iface - 0x4B0; }
         else if (!(dyn && iface == dyn + 0x4B0)) return r;
@@ -2177,7 +2204,7 @@ static uint64_t detour_fh3_carobj_update(void* self, float dt) {
                 char b[160];
                 snprintf(b, sizeof b, "Nitrous Kit: driven car model %d, garage car %u is model %d: %s", have, (unsigned)nu_active_garage, want,
                          foreign ? "another car (loaner), no nitro" : "same car");
-                g_api->log(g_mod, b);
+                nlog(g_api, g_mod, b);
             }
             nu_foreign_car = foreign ? 1 : 0;
         }
@@ -2190,7 +2217,7 @@ static uint64_t detour_fh3_carobj_update(void* self, float dt) {
         uint32_t m = fh3_car_exhaust_tips(car, msg);
         char b[200];
         snprintf(b, sizeof b, "flames: the player's Car %p (dynamics %p), its presentation %p, exhausts %02X", car, dyn, deferred, m);
-        g_api->log(g_mod, b);
+        nlog(g_api, g_mod, b);
     }
     g_fh3_car_drive.store(true);
     g_fh3_car_drive_fwd.store(true);
@@ -2213,7 +2240,7 @@ static uint64_t detour_fh3_carobj_update(void* self, float dt) {
             mask = fh3_car_exhaust_tips(car, msg);
             char b[160];
             snprintf(b, sizeof b, "flames: the Car %p resolved its exhaust locators: mask %02X", car, mask);
-            g_api->log(g_mod, b);
+            nlog(g_api, g_mod, b);
         }
     }
     {   // The game can empty the Car's exhaust pointers again after a backfire, so a tick may find none. Keep the last good set
@@ -2252,15 +2279,15 @@ static void install_fh3_flames(char* base) {
                                        (void*)detour_fh3_queue, (void**)&g_orig_fh3_queue);
     if (!(h3 && g_api->enable_hooks(g_mod, h3))) {
         g_orig_fh3_queue = nullptr;
-        g_api->log(g_mod, "Could not hook the presentation queue: the first backfire is needed to find the player's presentation.");
+        nlog(g_api, g_mod, "Could not hook the presentation queue: the first backfire is needed to find the player's presentation.");
     }
     bool ok1 = h1 && g_api->enable_hooks(g_mod, h1), ok2 = h2 && g_api->enable_hooks(g_mod, h2);
     if (!ok1) g_orig_fh3_post = nullptr;
     FH3Hook* h4 = g_api->hook_function(g_mod, "Car update (the game's exhaust tips)", base + kFH3CarObjUpdate,
                                        (void*)detour_fh3_carobj_update, (void**)&g_orig_fh3_carobj_update);
     if (!(h4 && g_api->enable_hooks(g_mod, h4)))
-        g_api->log(g_mod, "Could not hook the Car update: flames fall back to the exhaust locators found by searching.");
-    g_api->log(g_mod, ok1 && ok2 ? "Backfire hooked (nitro exhaust flames)." : "Could not hook the backfire: no nitro flames.");
+        nlog(g_api, g_mod, "Could not hook the Car update: flames fall back to the exhaust locators found by searching.");
+    nlog(g_api, g_mod, ok1 && ok2 ? "Backfire hooked (nitro exhaust flames)." : "Could not hook the backfire: no nitro flames.");
 }
 
 
@@ -2546,7 +2573,7 @@ static void detour_speedo_tick(void* speedo, float rpm) {
                 char msg[160];
                 snprintf(msg, sizeof(msg), "Nitro speed lines are being driven (opacity %.2f at %.0f km/h; tiers %.2f %.2f %.2f %.2f %.2f %.2f).",
                          sl_master, kmh, sl_tier[0], sl_tier[1], sl_tier[2], sl_tier[3], sl_tier[4], sl_tier[5]);
-                if (g_api && g_mod) g_api->log(g_mod, msg);
+                if (g_api && g_mod) nlog(g_api, g_mod, msg);
             } else if (sl_master < 0.004f) {
                 sl_logged = false;
             }
@@ -2557,7 +2584,7 @@ static void detour_speedo_tick(void* speedo, float rpm) {
             static bool logged = false;
             if (vignette_alpha > 0.05f && !logged) {
                 logged = true;
-                if (g_api && g_mod) g_api->log(g_mod, "Nitro vignette is being driven (HUD items 18 and 19, YPos).");
+                if (g_api && g_mod) nlog(g_api, g_mod, "Nitro vignette is being driven (HUD items 18 and 19, YPos).");
             } else if (vignette_alpha == 0.0f) {
                 logged = false;
             }
@@ -2665,19 +2692,19 @@ static void on_setting_changed(void* user, const char* key, int value) {
         g_hud_hide.store(value != 0);
         save_config();
         apply_hud_theme();   // written now, read by the game at the next start
-        if (g_api && g_mod) g_api->log(g_mod, value ? "Hide nitro gauge without kit: on (applies after a restart)" : "Hide nitro gauge without kit: off (applies after a restart)");
+        if (g_api && g_mod) nlog(g_api, g_mod, value ? "Hide nitro gauge without kit: on (applies after a restart)" : "Hide nitro gauge without kit: off (applies after a restart)");
         return;
     }
     if (strcmp(key, "SpeedLinesEnabled") == 0) {
         g_sl_on.store(value != 0);
         save_config();
-        if (g_api && g_mod) g_api->log(g_mod, value ? "Nitro speed lines: on" : "Nitro speed lines: off");
+        if (g_api && g_mod) nlog(g_api, g_mod, value ? "Nitro speed lines: on" : "Nitro speed lines: off");
         return;
     }
     if (strcmp(key, "VignetteEnabled") == 0) {
         g_vig_on.store(value != 0);
         save_config();
-        if (g_api && g_mod) g_api->log(g_mod, value ? "Nitro vignette: on" : "Nitro vignette: off");
+        if (g_api && g_mod) nlog(g_api, g_mod, value ? "Nitro vignette: on" : "Nitro vignette: off");
         return;
     }
     if (strcmp(key, "RefundOnRewind") == 0) {
@@ -2693,7 +2720,7 @@ static void on_setting_changed(void* user, const char* key, int value) {
     if (strcmp(key, "BackfireOnAllCars") == 0) {
         g_backfire_all_cars.store(value != 0);
         save_config();
-        if (g_api && g_mod) g_api->log(g_mod, value ? "Backfire on all cars on (applies after a restart)" : "Backfire on all cars off (applies after a restart)");
+        if (g_api && g_mod) nlog(g_api, g_mod, value ? "Backfire on all cars on (applies after a restart)" : "Backfire on all cars off (applies after a restart)");
         return;
     }
     (void)user;
@@ -2701,7 +2728,7 @@ static void on_setting_changed(void* user, const char* key, int value) {
         g_enabled.store(value != 0);
         save_config();
         if (g_api && g_mod) {
-            g_api->log(g_mod, value ? "Nitro enabled" : "Nitro disabled");
+            nlog(g_api, g_mod, value ? "Nitro enabled" : "Nitro disabled");
         }
     }
 }
@@ -2717,43 +2744,43 @@ static void on_slider_changed(void* user, const char* key, float value) {
         g_nitro_button.store(k_buttons[idx].mask);
         save_config();
         snprintf(buf, sizeof(buf), "NitroButton set to %ls (saved)", k_buttons[idx].name);
-        if (g_api && g_mod) g_api->log(g_mod, buf);
+        if (g_api && g_mod) nlog(g_api, g_mod, buf);
     } else if (strcmp(key, "HudTheme") == 0) {
         g_hud_theme.store((int)(value + 0.5f) >= 2 ? 1 : 0);
         save_config();
         apply_hud_theme();   // the files are written now; the game picks them up when it restarts
         snprintf(buf, sizeof(buf), "HudTheme set to %s (saved, applies after a restart)", g_hud_theme.load() ? "Fast & Furious" : "Original");
-        if (g_api && g_mod) g_api->log(g_mod, buf);
+        if (g_api && g_mod) nlog(g_api, g_mod, buf);
     } else if (strcmp(key, "Duration") == 0) {
         g_duration.store(value);
         save_config();
         snprintf(buf, sizeof(buf), "Nitro Duration set to %.1fs (saved)", value);
-        if (g_api && g_mod) g_api->log(g_mod, buf);
+        if (g_api && g_mod) nlog(g_api, g_mod, buf);
     } else if (strcmp(key, "SoundVolume") == 0) {
         g_sound_volume.store(value);
         save_config();
         snprintf(buf, sizeof(buf), "SoundVolume set to %.0f%% (saved)", value * 100.0f);
-        if (g_api && g_mod) g_api->log(g_mod, buf);
+        if (g_api && g_mod) nlog(g_api, g_mod, buf);
     } else if (strcmp(key, "CameraShake") == 0) {
         g_camera_shake.store(value);
         save_config();
         snprintf(buf, sizeof(buf), "CameraShake set to %.0f%% (saved)", value * 100.0f);
-        if (g_api && g_mod) g_api->log(g_mod, buf);
+        if (g_api && g_mod) nlog(g_api, g_mod, buf);
     } else if (strcmp(key, "FovBoost") == 0) {
         g_fov_boost.store(value);
         save_config();
         snprintf(buf, sizeof(buf), "FovBoost set to %.0f%% (saved)", value * 100.0f);
-        if (g_api && g_mod) g_api->log(g_mod, buf);
+        if (g_api && g_mod) nlog(g_api, g_mod, buf);
     } else if (strcmp(key, "BuildupTime") == 0) {
         g_buildup_time.store(value);
         save_config();
         snprintf(buf, sizeof(buf), "BuildupTime set to %.2fs (saved)", value);
-        if (g_api && g_mod) g_api->log(g_mod, buf);
+        if (g_api && g_mod) nlog(g_api, g_mod, buf);
     } else if (strcmp(key, "RechargeRate") == 0) {
         g_recharge_rate.store(value);
         save_config();
         snprintf(buf, sizeof(buf), "RechargeRate set to %.2fx (saved)", value);
-        if (g_api && g_mod) g_api->log(g_mod, buf);
+        if (g_api && g_mod) nlog(g_api, g_mod, buf);
     }
 }
 
@@ -2946,7 +2973,7 @@ static void refill_nitro(const char* why, uint64_t now) {
         g_depleted_lockout.store(false);
         char msg[128];
         snprintf(msg, sizeof(msg), "Nitro tank refilled (%s).", why);
-        g_api->log(g_mod, msg);
+        nlog(g_api, g_mod, msg);
     }
 }
 
@@ -3016,7 +3043,7 @@ static void nitro_hud_events(bool physics, bool speedo, uint64_t now) {
                 if (then >= 2.0f) g_depleted_lockout.store(false);
                 snprintf(msg, sizeof(msg), "Rewind: nitro tank restored to %.1f s (back %.0f m, matched within %.0f m).", then,
                          dist3(cur, freeze_pos), best_d);
-                g_api->log(g_mod, msg);
+                nlog(g_api, g_mod, msg);
             }
         } else {
             path.clear();   // somewhere new: the old path no longer leads here
@@ -3032,34 +3059,34 @@ static void nitro_worker_thread() {
     if (!g_api || !g_mod) return;
 
     xin::load();
-    g_api->log(g_mod, xin::get_state ? "XInput loaded." : "XInput could not be loaded: the nitro button will not work.");
-    g_api->log(g_mod, "Worker thread waiting for game code...");
+    nlog(g_api, g_mod, xin::get_state ? "XInput loaded." : "XInput could not be loaded: the nitro button will not work.");
+    nlog(g_api, g_mod, "Worker thread waiting for game code...");
     void* base = g_api->wait_for_code(0xFFFFFFFF);
     if (!base) {
-        g_api->log(g_mod, "Game code not found (timed out).");
+        nlog(g_api, g_mod, "Game code not found (timed out).");
         return;
     }
 
     char log_buf[128];
     snprintf(log_buf, sizeof(log_buf), "Game mapped at base %p. Installing physics boost hook...", base);
-    g_api->log(g_mod, log_buf);
+    nlog(g_api, g_mod, log_buf);
     g_game_base = base;
 
     // FH3: CCarDynamics' per-tick update (vtable slot 16) and CWorldCollObjMan::Update. The other FH2 hooks
     // (backfire, frame step, cameras, speedometer) aren't ported yet.
-    g_api->log(g_mod, install_release_hook((char*)base) ? "Car physics tick hooked (nitro push, 360 Hz)."
+    nlog(g_api, g_mod, install_release_hook((char*)base) ? "Car physics tick hooked (nitro push, 360 Hz)."
                                                         : "Could not hook the car physics tick: no nitro push.");
 
     install_fh3_flames((char*)base);
     {
         FH3Hook* hc = g_api->hook_function(g_mod, "HUD controller update", (char*)base + 0xB26690,
                                            (void*)detour_hud_ctrl, (void**)&g_orig_hud_ctrl);
-        if (!(hc && g_api->enable_hooks(g_mod, hc))) { g_orig_hud_ctrl = nullptr; g_api->log(g_mod, "Could not hook the HUD controller: the player's car is told apart by position only."); }
+        if (!(hc && g_api->enable_hooks(g_mod, hc))) { g_orig_hud_ctrl = nullptr; nlog(g_api, g_mod, "Could not hook the HUD controller: the player's car is told apart by position only."); }
     }
     {   // the speedometer's per-frame update (rcx = HUDStatusSpeedometer, xmm1 = rpm): drives the NOS gauge
         FH3Hook* hs = g_api->hook_function(g_mod, "HUDStatusSpeedometer update", (char*)base + 0x10FD450,
                                            (void*)detour_speedo_tick, (void**)&g_orig_speedo_tick);
-        g_api->log(g_mod, hs && g_api->enable_hooks(g_mod, hs) ? "Speedometer hooked (NOS gauge)."
+        nlog(g_api, g_mod, hs && g_api->enable_hooks(g_mod, hs) ? "Speedometer hooked (NOS gauge)."
                                                               : "Could not hook the speedometer: no NOS gauge.");
     }
     {
@@ -3078,12 +3105,12 @@ static void nitro_worker_thread() {
         }
         char cm[100];
         snprintf(cm, sizeof cm, "Camera hooks installed: %d of 4 (screen shake and wider field of view while nitro burns).", ok);
-        g_api->log(g_mod, cm);
+        nlog(g_api, g_mod, cm);
     }
 
     void* mgr_update = (void*)((uintptr_t)base + kFH3WorldUpdate);
     FH3Hook* hook_mgr = g_api->hook_function(g_mod, "CWorldCollObjMan::Update", mgr_update, (void*)detour_mgr_update, (void**)&g_orig_mgr_update);
-    g_api->log(g_mod, hook_mgr && g_api->enable_hooks(g_mod, hook_mgr) ? "CWorldCollObjMan::Update hooked to find the player's car."
+    nlog(g_api, g_mod, hook_mgr && g_api->enable_hooks(g_mod, hook_mgr) ? "CWorldCollObjMan::Update hooked to find the player's car."
                                                                        : "Could not hook CWorldCollObjMan::Update: the player's car can't be found, so no nitro.");
 
     // FH3 research: what the hooks see, every 5 seconds for the first minutes (the offsets come from reading the
@@ -3108,9 +3135,9 @@ static void nitro_worker_thread() {
                      g_meas_accel_plain.load(), g_meas_accel_boost.load(), g_engine_accel.load(), g_push_scale.load(), g_up_axis.load(),
                      (unsigned long long)g_boosted_frames.load());
             last_frames = frames;
-            g_api->log(g_mod, b);
+            nlog(g_api, g_mod, b);
             snprintf(b, sizeof b, "camera: view calls %u (shaken %u), fov calls (widened %u)", g_cam_view_calls.load(), g_cam_view_shaken.load(), g_cam_fov_widened.load());
-            g_api->log(g_mod, b);
+            nlog(g_api, g_mod, b);
             snprintf(b, sizeof b, "flames: posts %u (flagged %u, player's %u, thread %lu), routine runs %u (flagged %u, thread %lu), "
                      "player presentation %p at +0x%X, tips known %d, mask %02X (forced %02X), nitro flames posted %u, release thread %lu, queue calls %u (from the player car %u), presentation %p, pres mask %02X",
                      g_fh3_post_calls.load(), g_fh3_post_flagged.load(), g_fh3_post_player.load(), (unsigned long)g_fh3_post_tid.load(),
@@ -3118,7 +3145,7 @@ static void nitro_worker_thread() {
                      g_fh3_player_deferred.load(), g_fh3_deferred_off.load(), (int)g_fh3_tips_ok.load(), g_fh3_mask.load(),
                      g_fh3_mask_forced.load(), g_fh3_driven.load(), (unsigned long)g_phys_tid.load(),
                      g_fh3_queue_calls.load(), g_fh3_queue_stack_hits.load(), g_fh3_pres.load(), g_fh3_mask_pres.load());
-            g_api->log(g_mod, b);
+            nlog(g_api, g_mod, b);
 
         }
     }).detach();
@@ -3173,7 +3200,7 @@ static void nitro_worker_thread() {
                 snprintf(log_buf, sizeof(log_buf), "driving=%d (physics age %llu ms, car position age %llu ms, driving camera age %llu ms)", driving ? 1 : 0,
                          (unsigned long long)(now_ms - g_last_physics_tick.load()), (unsigned long long)(now_ms - g_player_pos_tick.load()),
                          (unsigned long long)(now_ms - g_last_drivecam_tick.load()));
-                g_api->log(g_mod, log_buf);
+                nlog(g_api, g_mod, log_buf);
             }
         }
 
@@ -3195,18 +3222,18 @@ static void nitro_worker_thread() {
         if (g_up_report.exchange(0) == 1) {
             snprintf(log_buf, sizeof(log_buf), "Vertical axis learned: %c. Nitro now pushes horizontally and only on the ground.",
                      "XYZ"[g_up_axis.load()]);
-            g_api->log(g_mod, log_buf);
+            nlog(g_api, g_mod, log_buf);
         }
 
         int report = g_calib_report.exchange(0);
         if (report == 1) {
             snprintf(log_buf, sizeof(log_buf), "Player car located: position at CCarDynamics+0x%X (%d hits). Nitro now only boosts your car.",
                      g_pos_offset.load(), g_calib_best_hits.load());
-            g_api->log(g_mod, log_buf);
+            nlog(g_api, g_mod, log_buf);
         } else if (report == 2) {
             snprintf(log_buf, sizeof(log_buf), "Could not locate the player car yet (best offset only %d hits); retrying.",
                      g_calib_best_hits.load());
-            g_api->log(g_mod, log_buf);
+            nlog(g_api, g_mod, log_buf);
         }
 
         // The nitrous kit decides everything: no kit on the car being driven = no nitro, no gauge; the stage
@@ -3218,7 +3245,7 @@ static void nitro_worker_thread() {
             g_current_fuel.store(g_duration.load());
             g_depleted_lockout.store(false);
             snprintf(log_buf, sizeof(log_buf), "Nitrous kit stage on the driven car: %d", level);
-            g_api->log(g_mod, log_buf);
+            nlog(g_api, g_mod, log_buf);
         }
         if (level == 0) {
             button_pressed = false;
@@ -3244,7 +3271,7 @@ static void nitro_worker_thread() {
                 g_nitro_active.store(true);
                 active_duration = 0.0f;
                 start_nitro_audio();
-                g_api->log(g_mod, "Fast & Furious Nitro engaged (LB pressed)!");
+                nlog(g_api, g_mod, "Fast & Furious Nitro engaged (LB pressed)!");
             }
 
             active_duration += dt;
@@ -3267,7 +3294,7 @@ static void nitro_worker_thread() {
                 g_current_boost.store(1.0f);
                 set_rumble(0, 0);
                 stop_nitro_audio();
-                g_api->log(g_mod, "Nitro tank depleted.");
+                nlog(g_api, g_mod, "Nitro tank depleted.");
             }
         } else {
             // Idle / Recharging
@@ -3444,7 +3471,7 @@ static void debug_overlay_thread() {
             } else {
                 snprintf(b, sizeof(b), "debug overlay: no game window found, nothing to draw on");
             }
-            g_api->log(g_mod, b);
+            nlog(g_api, g_mod, b);
         }
         if (!f.best) continue;
         RECT cr;
@@ -3487,7 +3514,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     g_mod = api->register_mod(&info);
     if (!g_mod) return 1;
 
-    api->log(g_mod, "NitroSystem II initializing (nitrous kit upgrade + LB to boost)...");
+    nlog(api, g_mod, "NitroSystem II initializing (nitrous kit upgrade + LB to boost)...");
 
     // Initialize paths & load persistent settings from NitroSystemII.ini
     init_paths();
@@ -3524,7 +3551,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
         g_tipsrc_b.store((int)GetPrivateProfileIntW(L"FH3", L"TipSrcB", 0, g_ini_path));
         char msg[96];
         snprintf(msg, sizeof msg, "FH3 build: Nitrous Kit stage %d, boost %.1fx", nu_level(), nu_boost(nu_level()));
-        api->log(g_mod, msg);
+        nlog(api, g_mod, msg);
     }
 
     // Register In-Game Settings (Pause > Settings > MODS) with loaded values
@@ -3749,6 +3776,6 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     std::thread(nitro_worker_thread).detach();
     std::thread(debug_overlay_thread).detach();
 
-    api->log(g_mod, "Fast & Furious NOS initialized successfully.");
+    nlog(api, g_mod, "Fast & Furious NOS initialized successfully.");
     return 0;
 }

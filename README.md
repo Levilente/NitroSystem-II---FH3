@@ -112,6 +112,8 @@ Which stage is fitted to and owned by each car is kept by the platform's upgrade
 
 Pick a button the game does not already use while driving, or it will do both at once.
 
+`[Settings] Log=1` in the ini writes what the mod does to `fh3-mods\platform.log` (for bug reports). It is `0` by default: only problems (a hook that couldn't be set, something not found) are logged.
+
 `HudTheme` in the ini is `FF` (default) or `Original`. `BackfireOnAllCars=1` makes the mod change a game database query so every car can backfire, which the flames depend on; turn it off to leave the game's backfire settings alone (flames then only work on cars the game already lets backfire).
 
 ## Uninstalling

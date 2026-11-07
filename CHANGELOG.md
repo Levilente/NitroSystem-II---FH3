@@ -15,4 +15,5 @@ First release for **Forza Horizon 3**, on the [FH3 Mod Platform](https://github.
 - Nitro works only while you are driving (driving camera), not in the garage, menus or photo mode, and does not depend on the HUD being visible.
 - The HUD is ready from the first frame of a fresh start.
 - Settings on **Pause > MODS**.
+- Quiet log: only problems are logged unless `[Settings] Log=1` is set in the ini.
 - Update checks through the platform.
