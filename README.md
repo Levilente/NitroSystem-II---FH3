@@ -14,6 +14,7 @@ NitroSystem II is a continuation of **[NitroSystem](https://github.com/qiangqian
 
 - **The Nitrous Kit is an upgrade you buy.** **Garage > Upgrades > Engine > Nitrous Kit**: *Stock*, *Stage 1*, *Stage 2*, *Stage 3*. Prices default to 3 000 / 6 000 / 12 000 CR and are configurable. The kit is registered through the platform's upgrade bridge, so it behaves like a normal upgrade (price, owned marker, installed marker).
 - **Stored per owned car.** Fitting stage 2 on one car does not give nitro to your other cars, not even to other cars of the same model. No kit, no nitro.
+- **Only in your own cars.** A car you pick at an event's car select has its nitro from the start; showcase cars, loaners and test drives have none.
 - **Each stage pushes harder**: 1.2x / 1.4x / 1.6x boost by default, configurable per stage.
 - **The NOS gauge is only shown on cars that have the kit.**
 - **Extra effects while nitro burns**: wider field of view, a pulsing blue vignette and speed lines along the screen edges (each can be switched off).
@@ -37,7 +38,7 @@ NitroSystem II is a continuation of **[NitroSystem](https://github.com/qiangqian
 | What | Version |
 |---|---|
 | Forza Horizon 3 on PC with the **Azimuth** launcher | Xbox One build 1.0.125.0 (the one the platform targets) |
-| **[FH3 Mod Platform](https://github.com/Levilente/FH3_ModPlatform)** | **1.0.0 or newer** (API 12) |
+| **[FH3 Mod Platform](https://github.com/Levilente/FH3_ModPlatform)** | **1.0.0 or newer** |
 
 The platform is the `DWrite.dll` (and `d3dcompiler_47.dll`) next to `azimuth.exe`. If you use any other platform-based mod you already have it; otherwise download the platform zip from its [releases page](https://github.com/Levilente/FH3_ModPlatform/releases) and follow its README.
 

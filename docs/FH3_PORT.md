@@ -28,7 +28,7 @@ starts with the same code (`[rcx+0x270]`/`[rcx+0x540]` in FH3 vs `0x260`/`0x510`
 | Refill on race start, refund on rewind, rumble, sounds | shared code, as FH2 |
 | Backfire on all cars (`UPDATE BackfireLevels`) | done |
 | Only while driving (the driving cameras ask for their view; works with the HUD hidden) | done |
-| Not in a mission loaner (the driven car's model is compared with the garage car's, platform API 12 `upgrade_car_model`) | done |
+| Only in the player's own cars: event car select, loaners, showcase cars (the platform follows the player's car from API 14; the mod's own model check from API 12 stays as a fallback) | done |
 | HUD override handed over at `fh3mod_init` (ready on a fresh start) | done |
 | MODS page | done (platform 1.0.0), settings also in `fh3-mods\NitroSystemII.ini` |
 
