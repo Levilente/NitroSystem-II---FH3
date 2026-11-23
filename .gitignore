@@ -8,3 +8,5 @@ __pycache__/
 *.exe
 *.user
 .vs/
+
+CLAUDE.md

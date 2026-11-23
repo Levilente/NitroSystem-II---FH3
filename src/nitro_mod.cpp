@@ -2,6 +2,8 @@
 #define FH3MOD_PLATFORM_VERSION "1.0.0"
 #endif
 #include "fh3mod.h"
+#include "fh3anna.h"   // ANNA's API: is_autodriving()
+#include "NitroSystemControl.h"   // the switch other mods can use to turn the NOS off
 #include "legacy_files.h"
 
 #include <windows.h>
@@ -9,6 +11,7 @@
 #include <mmsystem.h>
 #include <xinput.h>
 
+#include <algorithm>
 #include <atomic>
 #include <unordered_set>
 #include <vector>
@@ -83,7 +86,7 @@ static std::atomic<bool> g_refill_on_start{true};    // "Refill Nitro on Race St
 // [Settings] HudHide=1 (default) ties the opacity of the NOS frame to the nitrous kit (hidden without one) through extra
 // bindings in the speedometer XAML. 0 leaves the XAML as it was: the frame stays, empty, on cars without a kit.
 static std::atomic<bool> g_hud_hide{true};
-static std::atomic<int> g_hud_theme{1};              // "HUD Theme": 0 = Original (yellow NOS bar), 1 = Fast & Furious (cyan); needs a restart
+static std::atomic<int> g_hud_theme{2};              // "HUD Theme": 0 = Original FH3 (cyan of the gear), 1 = FH2 (yellow), 2 = FH2 Fast & Furious (blue-cyan); changes live
 static std::atomic<float> g_duration{5.0f};          // tank size in seconds (5 s here; the original default was 20 s)
 static std::atomic<float> g_buildup_time{0.5f};      // Spire default BuildupTime = 0.5s
 static std::atomic<float> g_recharge_rate{0.2f};     // 0.2 seconds of nitro recharged per second idle
@@ -129,6 +132,35 @@ static bool nitro_log_problem(const char* s) {
 static void nlog(const FH3ModApi* api, FH3Mod* mod, const char* line) {
     if (api && mod && line && (nitro_log_on() || nitro_log_problem(line))) api->log(mod, line);
 }
+
+// Other mods can switch the player's NOS off (include/NitroSystemControl.h): each by its own name, and NOS stays off
+// while any of them blocks it. The list is short and changes rarely; g_block_count is what the worker reads.
+static std::mutex g_block_mu;
+static std::vector<std::string> g_blockers;
+static std::atomic<int> g_block_count{0};
+
+static void set_nos_blocked(const char* who, int blocked) {
+    std::string name = (who && who[0]) ? std::string(who).substr(0, 31) : std::string("(unnamed mod)");
+    bool changed = false;
+    {
+        std::lock_guard<std::mutex> lock(g_block_mu);
+        auto it = std::find(g_blockers.begin(), g_blockers.end(), name);
+        if (blocked && it == g_blockers.end() && g_blockers.size() < 32) {
+            g_blockers.push_back(name);
+            changed = true;
+        } else if (!blocked && it != g_blockers.end()) {
+            g_blockers.erase(it);
+            changed = true;
+        }
+        g_block_count.store(static_cast<int>(g_blockers.size()));
+    }
+    if (changed && g_api && g_mod) {
+        char msg[96];
+        snprintf(msg, sizeof(msg), blocked ? "NOS blocked by %s." : "NOS no longer blocked by %s.", name.c_str());
+        nlog(g_api, g_mod, msg);
+    }
+}
+static int nos_blocked() { return g_block_count.load() > 0 ? 1 : 0; }
 
 static wchar_t g_sound_boost_path[MAX_PATH] = {0};
 static wchar_t g_sound_stop_path[MAX_PATH] = {0};
@@ -195,7 +227,8 @@ static void load_config() {
     g_hud_hide.store(GetPrivateProfileIntW(L"Settings", L"HudHide", 1, g_ini_path) != 0);
     wchar_t theme[32];
     GetPrivateProfileStringW(L"Settings", L"HudTheme", L"FF", theme, 32, g_ini_path);
-    g_hud_theme.store(_wcsicmp(theme, L"Original") == 0 ? 0 : 1);   // unknown values fall back to FF
+    // FH3 = the FH3 gear's cyan, FH2 = yellow ("Original" in older versions meant this), FF = the Fast & Furious blue-cyan
+    g_hud_theme.store(_wcsicmp(theme, L"FH3") == 0 ? 0 : (_wcsicmp(theme, L"FH2") == 0 || _wcsicmp(theme, L"Original") == 0) ? 1 : 2);   // unknown values fall back to FF
 
     wchar_t buf[64];
     // Older versions kept a TorqueScale here; the push now comes from the nitrous kit stage bought for the car
@@ -249,7 +282,7 @@ static void save_config() {
     WritePrivateProfileStringW(L"Settings", L"RefillOnRaceStart", g_refill_on_start.load() ? L"1" : L"0", g_ini_path);
     WritePrivateProfileStringW(L"Settings", L"RefundOnRewind", g_refund_on_rewind.load() ? L"1" : L"0", g_ini_path);
     WritePrivateProfileStringW(L"Settings", L"Rumble", g_rumble.load() ? L"1" : L"0", g_ini_path);
-    WritePrivateProfileStringW(L"Settings", L"HudTheme", g_hud_theme.load() == 0 ? L"Original" : L"FF", g_ini_path);
+    WritePrivateProfileStringW(L"Settings", L"HudTheme", g_hud_theme.load() == 0 ? L"FH3" : g_hud_theme.load() == 1 ? L"FH2" : L"FF", g_ini_path);
     WritePrivateProfileStringW(L"Settings", L"HudHide", g_hud_hide.load() ? L"1" : L"0", g_ini_path);
     swprintf_s(buf, 64, L"%.1f", g_duration.load());
     WritePrivateProfileStringW(L"Settings", L"Duration", buf, g_ini_path);
@@ -321,7 +354,7 @@ static void replace_all(std::string& s, const char* from, const char* to) {
 static void apply_hud_theme() {
     // FH3: the HUD files are FH2's (FH3's speedometer XAML differs); not handed to the game until they're ported.
     if (!g_api || !g_mod || g_api->api_version < 2) return;
-    const bool ff = g_hud_theme.load() != 0;
+    const bool ff = g_hud_theme.load() == 2;
 
     std::string xaml;
     if (!load_hud_resource(k_hud_xaml.resource, xaml)) {
@@ -330,13 +363,7 @@ static void apply_hud_theme() {
     }
     if (!g_hud_hide.load())
         replace_all(xaml, " Opacity=\"{Binding RPMGaugeNumbers[20].YPos}\"", "");   // the kit-dependent frame opacity is off
-    if (!ff) {
-        // The XAML is written with the Fast & Furious cyan; Original turns the NOS bar yellow.
-        replace_all(xaml, "#FF2DB2FF", "#FFF4F444");   // fill: the yellow of the stock gear box
-        replace_all(xaml, "#2AEAFAFF", "#2AFFFFB0");   // tip glow
-        replace_all(xaml, "#55EAFAFF", "#55FFFFB0");   // tip glow (digital bar)
-        replace_all(xaml, "#22EAF8FF", "#22FFFFB0");   // tip glow, radial
-    }
+    // The XAML has the colours of all three themes; the mod picks one live (item 14's X, see detour_speedo_tick).
     if (!g_api->set_file(g_mod, k_hud_xaml.media_path, xaml.data(), xaml.size()))
         nlog(g_api, g_mod, "HUD: couldn't replace the speedometer XAML (see platform.log).");
 
@@ -364,7 +391,7 @@ static void apply_hud_theme() {
             nlog(g_api, g_mod, msg);
         }
     }
-    nlog(g_api, g_mod, ff ? "HUD theme: Fast & Furious" : "HUD theme: Original (yellow NOS bar)");
+    nlog(g_api, g_mod, g_hud_theme.load() == 0 ? "HUD theme: Original FH3" : g_hud_theme.load() == 1 ? "HUD theme: FH2 (yellow NOS bar)" : "HUD theme: FH2 Fast & Furious");
 }
 
 // Older versions had players copy these files into mediaoverride by hand. The platform doesn't know about them, so
@@ -414,8 +441,8 @@ static void remove_legacy_files() {
     int removed = 0;
     for (const auto& f : k_legacy_files)
         if (delete_if_known(override_path(f.path), f.size, f.hash)) ++removed;
-    // The Fast & Furious gears and icons, left behind by hand-copying or by an older version, when the theme is Original.
-    if (g_hud_theme.load() == 0) {
+    // The Fast & Furious gears and icons, left behind by hand-copying or by an older version, unless the theme is Fast & Furious.
+    if (g_hud_theme.load() != 2) {
         for (const auto& f : k_hud_files) {
             if (!f.ff_only) continue;
             std::string wanted;
@@ -454,6 +481,23 @@ static std::atomic<uint64_t> g_boosted_frames{0};
 static std::atomic<uint64_t> g_last_physics_tick{0};
 static void* g_player_cardynamics = nullptr;
 static std::atomic<uint64_t> g_last_drivecam_tick{0};   // a driving camera was asked for its view (not the garage, a photo or cinematic camera)
+
+// ANNA's Auto Drive (the game's AI driving the player's car): no nitro and no gauge then. ANNA is a separate mod; without it
+// this is always false. Looked up again every 2 seconds until ANNA has loaded.
+static bool anna_autodriving() {
+    static std::atomic<const FH3AnnaApi*> api{nullptr};
+    static std::atomic<uint64_t> next_look{0};
+    const FH3AnnaApi* a = api.load();
+    if (!a) {
+        const uint64_t now = GetTickCount64();
+        if (now < next_look.load()) return false;
+        next_look.store(now + 2000);
+        a = fh3anna_get(1);
+        if (!a) return false;
+        api.store(a);
+    }
+    return a->is_autodriving && a->is_autodriving() != 0;
+}
 static std::atomic<uint64_t> g_last_speedo_tick{0}; // HUD speedometer only ticks while driving with the HUD up
 
 // Telling the player's car from AI racers and traffic. Every simulated car has [+0x178] == 1, so that
@@ -792,6 +836,7 @@ static std::atomic<void*> g_fh3_pres{nullptr};
 static std::atomic<uint32_t> g_fh3_mask_pres{0};
 static std::atomic<uint32_t> g_fh3_mask{0};                 // exhaust tips the game flagged for the player's car
 static void update_torque(char* car);
+
 
 static uint64_t detour_release(void* self) {
     char* car = (char*)self - kFH3CarSecondaryThis;
@@ -2452,56 +2497,48 @@ static void detour_speedo_tick(void* speedo, float rpm) {
         if (total_ratio > 1.0f) total_ratio = 1.0f;
         // The gauge is only there when the car being driven has the nitrous kit: without it everything is
         // emptied and the frame is made transparent (the XAML ties its opacity to item 20's YPos).
-        const bool gauge_visible = g_enabled.load() && nu_level() > 0;
+        // Also only while a driving camera (driver, hood, bumper, chase) is the one on screen: the cinematic camera (ANNA)
+        // and the other non-driving cameras hide the gauge, like the nitro itself is off there.
+        const bool drive_cam = !(g_orig_view_mounted || g_orig_view_chase) || (GetTickCount64() - g_last_drivecam_tick.load()) < 250;
+        const bool gauge_visible = g_enabled.load() && !nos_blocked() && nu_level() > 0 && drive_cam && !anna_autodriving();
         if (!gauge_visible) total_ratio = 0.0f;
 
-        // Sequential segments (Top segment drains first, down to bottom segment):
-        // Segment 1 (bottom: 0.00 to 0.25)
-        // Segment 2:         0.25 to 0.50
-        // Segment 3:         0.50 to 0.75
-        // Segment 4 (top:    0.75 to 1.00)
+        // Sequential segments (the last segment drains first, down to the first one), 5 of them (FH3 arch and digital bar):
+        // Segment 1: 0.0 to 0.2, 2: 0.2 to 0.4, 3: 0.4 to 0.6, 4: 0.6 to 0.8, 5: 0.8 to 1.0
         auto clamp01 = [](float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
-        float s1 = clamp01((total_ratio - 0.00f) / 0.25f);
-        float s2 = clamp01((total_ratio - 0.25f) / 0.25f);
-        float s3 = clamp01((total_ratio - 0.50f) / 0.25f);
-        float s4 = clamp01((total_ratio - 0.75f) / 0.25f);
+        float s1 = clamp01((total_ratio - 0.0f) / 0.2f);
+        float s2 = clamp01((total_ratio - 0.2f) / 0.2f);
+        float s3 = clamp01((total_ratio - 0.4f) / 0.2f);
+        float s4 = clamp01((total_ratio - 0.6f) / 0.2f);
+        float s5 = clamp01((total_ratio - 0.8f) / 0.2f);
 
         // Active nitrous glowing tip cap (follows the exact leading edge of the draining NOS bar):
         bool active = g_nitro_active.load() && gauge_visible;
         float glow_scale = 0.0f;
-        float leading_angle = 55.87f;
 
-        if (s4 > 0.001f) {
-            leading_angle = 118.57f + s4 * 20.26f;
-        } else if (s3 > 0.001f) {
-            leading_angle = 97.67f + s3 * 20.26f;
-        } else if (s2 > 0.001f) {
-            leading_angle = 76.77f + s2 * 20.26f;
-        } else {
-            leading_angle = 55.87f + s1 * 20.26f;
-        }
-        constexpr float kFH3Rot = NITRO_FH3 ? -5.0f : 0.0f;   // the FH3 dial's bar is turned 5 degrees down
-        // FH3: the four segments are drawn 17 degrees wide (gaps between them, like the digital bar), not 20.26
-        constexpr float kSegW = 20.26f;   // the gaps between the four segments are cut by a clip in the XAML
-        leading_angle = leading_angle - (s4 > 0.001f ? 118.57f + s4 * 20.26f : s3 > 0.001f ? 97.67f + s3 * 20.26f : s2 > 0.001f ? 76.77f + s2 * 20.26f : 55.87f + s1 * 20.26f)
-                      + (s4 > 0.001f ? 118.57f + s4 * kSegW : s3 > 0.001f ? 97.67f + s3 * kSegW : s2 > 0.001f ? 76.77f + s2 * kSegW : 55.87f + s1 * kSegW);
-        float dg[4] = {0, 0, 0, 0};   // digital bar: glow of the leading segment while the nitro burns
-        leading_angle += kFH3Rot;
+        // Arch geometry, in the RotateTransform angles of the XAML segments (0 = straight down, clockwise): the visible
+        // start of segment 1, the pitch from one segment to the next and the visible width of a segment. Keep these in
+        // step with hud/fh3/HUDSpeedometerControl.xaml. Only the glow of the digital bar needs them now.
+        constexpr float kArcStart = NITRO_FH3 ? 30.0f : 55.87f;
+        constexpr float kArcPitch = NITRO_FH3 ? 49.25f : 20.9f;
+        constexpr float kArcSegW  = NITRO_FH3 ? 46.1f : 20.26f;
+        constexpr float kGlowTrail = 12.0f;
+        const int lead_seg = (s5 > 0.001f) ? 4 : (s4 > 0.001f) ? 3 : (s3 > 0.001f) ? 2 : (s2 > 0.001f) ? 1 : 0;
+        const float seg_s[5] = {s1, s2, s3, s4, s5};
+        float leading_angle = kArcStart + lead_seg * kArcPitch + seg_s[lead_seg] * kArcSegW;
 
         // The glow passes are narrow RadialBar tracks (AngleAmount sets the width) centered on the
         // rotation angle, so Ratio 1.0 fills the whole track and YPos is the leading edge. The
         // XAML offsets slide each pass back so it ends on the edge.
         // The widest pass trails kGlowTrail degrees behind the edge. Near empty, park the glow where
         // its tail meets the bar start and shrink Ratio so it fades out instead of overhanging.
-        const float kBarStart = 55.87f + kFH3Rot;
-        const float kGlowTrail = 12.0f;
         if (active && total_ratio > 0.005f) {
-            float room = leading_angle - kBarStart;
+            float room = leading_angle - kArcStart;
             if (room >= kGlowTrail) {
                 glow_scale = 1.0f;
             } else {
                 glow_scale = room / kGlowTrail;
-                leading_angle = kBarStart + kGlowTrail;
+                leading_angle = kArcStart + kGlowTrail;
             }
         }
 
@@ -2517,6 +2554,29 @@ static void detour_speedo_tick(void* speedo, float rpm) {
             int lead = (s4 > 0.001f) ? 3 : (s3 > 0.001f) ? 2 : (s2 > 0.001f) ? 1 : 0;
             tip_x = lead * kSegPitch + kSegWidth * seg_fill[lead] - kBarWidth;
         }
+
+        // Digital bar (XAML: 47 rounded slanted pills, pitch 6.565, copying the tachometer): whole pills are shown, so it fills and empties pill
+        // by pill. Item 13: X = where the fill ends in px / 400 (an opacity mask with absolute mapping), Y = the same in px (the white last pill
+        // is right-aligned to it). Pills are 4.7 wide, the first starts at 25.5 in the XAML's upright, pre-skew coordinates, 0.9 px into the gap.
+        const int nos_pills = (int)ceilf(total_ratio * 47.0f - 0.001f);
+        const float nos_edge = nos_pills > 0 ? (nos_pills - 1) * 6.565f + 4.7f + 0.9f : 0.0f;   // from the first pill's left edge
+        // The game maps the mask over the pills' bounds plus about 3 px each side (measured in the game: the mask box runs from 22.1 to 334.9 px,
+        // the pills from 25.5 to 332.2), so the edge is placed in that box.
+        const float nos_frac = nos_pills > 0 ? (3.4f + nos_edge) / 312.8f : 0.0f;
+        const float nos_bar_px = nos_pills > 0 ? 25.5f + nos_edge : 0.0f;
+        // The last pill's glow while the nitro burns: it swells in fast, fades out slower, and while it burns it pulses and flickers like the
+        // vignette (a steady beat plus irregular noise), so it reads as a flame and not a lamp.
+        static float s_glow = 0.0f;
+        static uint64_t s_glow_ms = 0;
+        const uint64_t glow_now = GetTickCount64();
+        float glow_dt = s_glow_ms ? (float)(glow_now - s_glow_ms) / 1000.0f : 0.0f;
+        s_glow_ms = glow_now;
+        if (glow_dt > 0.25f) glow_dt = 0.25f;
+        const float glow_target = (active && nos_pills > 0) ? 1.0f : 0.0f;
+        s_glow += (glow_target - s_glow) * (1.0f - expf(-glow_dt / (glow_target > s_glow ? 0.07f : 0.35f)));
+        const float glow_t = (float)(glow_now % 1000000ULL) / 1000.0f;
+        const float glow_pulse = 0.72f + 0.28f * (0.55f * sinf(glow_t * 6.2832f * 3.1f) + 0.45f * (vig_noise(glow_t, 9.0f) * 2.0f - 1.0f));
+        const float nos_active = s_glow * (glow_pulse < 0.35f ? 0.35f : glow_pulse > 1.0f ? 1.0f : glow_pulse);
 
         // The pulsing blue vignette (a full-screen overlay in the speedometer XAML, opacity tied to item 18's YPos).
         float vignette_alpha = 0.0f;
@@ -2621,7 +2681,6 @@ static void detour_speedo_tick(void* speedo, float rpm) {
                         void* prop_xpos = get_xpos_prop();
                         void* prop_ypos = get_ypos_prop();
 
-                        if (active && total_ratio > 0.005f) dg[s4 > 0.001f ? 3 : s3 > 0.001f ? 2 : s2 > 0.001f ? 1 : 0] = glow_scale;
                         struct SegTarget {
                             int idx;
                             float x;
@@ -2635,12 +2694,16 @@ static void detour_speedo_tick(void* speedo, float rpm) {
                             {18, s2, vignette_alpha},        // Segment 2; Y = opacity of the blue nitro vignette
                             {19, s3, vig_b < 0.004f ? 0.0f : vig_b}, // Segment 3; Y = opacity of the wider blue glow (vignette layer B)
                             {20, s4, (gauge_visible || !g_hud_hide.load()) ? 1.0f : 0.0f},   // Segment 4 (Top); Y = opacity of the NOS frame (1 = shown)
-                            {16, glow_scale, leading_angle}, // Active Glowing Tip Cap (X=Ratio, Y=Angle)
 #if NITRO_FH3
-                            // FH3 (no speed lines in the XAML): the digital bar's glowing tip, one value per segment, only on the leading one
+                            {16, s5, nos_active},            // Segment 5 (the right end of the arch); Y = 1 while the nitro burns (the digital bar's glow)
+#else
+                            {16, glow_scale, leading_angle}, // Active Glowing Tip Cap (X=Ratio, Y=Angle)
+#endif
+#if NITRO_FH3
+                            // FH3: X of item 13 is how full the nitro tank is, for the digital bar
                             {15, sl_tier[0] + sl_tier[1], sl_tier[2] + sl_tier[3]},   // speed lines, slow and middle tiers
-                            {14, dg[2], dg[3]},
-                            {13, dg[0], dg[1]}
+                            {14, (float)g_hud_theme.load(), 0.0f},   // the HUD theme: the XAML styles pick the NOS colours by this
+                            {13, nos_frac, nos_bar_px}      // the digital bar (see above)
 #else
                             {15, sl_tier[0], sl_tier[1]},    // speed line tiers 0 and 1: opacity (the stock rev numbers 13 to 15 are removed from the XAML)
                             {14, sl_tier[2], sl_tier[3]},    // tiers 2 and 3
@@ -2746,10 +2809,10 @@ static void on_slider_changed(void* user, const char* key, float value) {
         snprintf(buf, sizeof(buf), "NitroButton set to %ls (saved)", k_buttons[idx].name);
         if (g_api && g_mod) nlog(g_api, g_mod, buf);
     } else if (strcmp(key, "HudTheme") == 0) {
-        g_hud_theme.store((int)(value + 0.5f) >= 2 ? 1 : 0);
+        const int th = (int)(value + 0.5f);
+        g_hud_theme.store(th < 0 ? 0 : th > 2 ? 2 : th);
         save_config();
-        apply_hud_theme();   // the files are written now; the game picks them up when it restarts
-        snprintf(buf, sizeof(buf), "HudTheme set to %s (saved, applies after a restart)", g_hud_theme.load() ? "Fast & Furious" : "Original");
+        snprintf(buf, sizeof(buf), "HudTheme set to %s (saved)", g_hud_theme.load() == 0 ? "Original FH3" : g_hud_theme.load() == 1 ? "FH2" : "FH2 Fast & Furious");
         if (g_api && g_mod) nlog(g_api, g_mod, buf);
     } else if (strcmp(key, "Duration") == 0) {
         g_duration.store(value);
@@ -3183,6 +3246,10 @@ static void nitro_worker_thread() {
             }
         }
 
+        // Another mod has switched NOS off (a drone flying, say): the button does nothing, so NOS that was burning stops the
+        // normal way, and the tank recharges as when it's let go.
+        if (nos_blocked()) button_pressed = false;
+
         // Only run while the player is actually driving: car physics is simulating (not Pause Menu,
         // Map or Loading) and the HUD speedometer is ticking (not Garage or a car meet lobby).
         uint64_t now_ms = GetTickCount64();
@@ -3191,7 +3258,7 @@ static void nitro_worker_thread() {
         // not one of the driving cameras (driver, hood, bumper, chase): the driving camera being asked for its view is the
         // "driving" signal. It does not depend on the HUD, so nitro works with the HUD switched off.
         const bool cam_alive = !(g_orig_view_mounted || g_orig_view_chase) || (now_ms - g_last_drivecam_tick.load()) < 250;   // no camera hook: not required
-        bool driving = physics_active && (now_ms - g_player_pos_tick.load()) < 200 && cam_alive;
+        bool driving = physics_active && (now_ms - g_player_pos_tick.load()) < 200 && cam_alive && !anna_autodriving();   // not while ANNA's Auto Drive drives
         {
             static int prev_driving = -1, flips = 0;
             if ((int)driving != prev_driving && flips < 60) {
@@ -3345,6 +3412,12 @@ static void build_overlay_lines() {
     overlay_line("nitro: enabled=%d active=%d lockout=%d fuel=%.1f/%.0f boost=%.2f",
                  g_enabled.load() ? 1 : 0, g_nitro_active.load() ? 1 : 0, g_depleted_lockout.load() ? 1 : 0,
                  g_current_fuel.load(), g_duration.load(), g_current_boost.load());
+    if (nos_blocked()) {
+        std::lock_guard<std::mutex> lock(g_block_mu);
+        std::string who;
+        for (const auto& b : g_blockers) who += (who.empty() ? "" : ", ") + b;
+        overlay_line("NOS blocked by: %s", who.c_str());
+    }
     overlay_line("nitrous kit: stage=%d boost=%.1fx garage id=%u", nu_level(), nu_boost(nu_level()), (unsigned)nu_active_garage);
     overlay_line("driving=%d  physics age=%llums  speedometer age=%llums", driving ? 1 : 0,
                  (unsigned long long)phys_age, (unsigned long long)speedo_age);
@@ -3498,6 +3571,20 @@ static int nitro_percent() {
 // the export keeps its old name so anything that already calls it keeps working
 extern "C" __declspec(dllexport) int FnFNitro_GetNitroPercent() { return nitro_percent(); }
 
+// The switch for other mods (include/NitroSystemControl.h), as plain exports too, for mods that don't use the platform's interfaces.
+static int nos_active() { return g_nitro_active.load() ? 1 : 0; }
+extern "C" __declspec(dllexport) void FnFNitro_SetBlocked(const char* who, int blocked) { set_nos_blocked(who, blocked); }
+extern "C" __declspec(dllexport) int FnFNitro_IsBlocked() { return nos_blocked(); }
+extern "C" __declspec(dllexport) int FnFNitro_IsActive() { return nos_active(); }
+
+static const NitroSystemControl k_control = {
+    sizeof(NitroSystemControl),
+    set_nos_blocked,
+    nos_blocked,
+    nos_active,
+    nitro_percent,
+};
+
 FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     g_api = api;
 
@@ -3513,6 +3600,9 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     
     g_mod = api->register_mod(&info);
     if (!g_mod) return 1;
+
+    // The switch other mods can use to turn the player's NOS off (include/NitroSystemControl.h)
+    if (api->api_version >= 2 && api->publish_interface) api->publish_interface(g_mod, NITROSYSTEM_CONTROL_NAME, NITROSYSTEM_CONTROL_VERSION, &k_control);
 
     nlog(api, g_mod, "NitroSystem II initializing (nitrous kit upgrade + LB to boost)...");
 
@@ -3643,15 +3733,15 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
             s_hud.size          = sizeof(s_hud);
             s_hud.key           = "HudTheme";
             s_hud.label         = "HUD Theme";
-            s_hud.description   = "1 Original (yellow NOS bar), 2 Fast & Furious (cyan NOS bar, gears and assist icons).";
+            s_hud.description   = "0 Original FH3 (cyan like the gear), 1 FH2 (yellow NOS bar), 2 FH2 Fast & Furious (blue-cyan NOS bar).";
             s_hud.kind          = FH3_SETTING_SLIDER;
-            s_hud.min           = 1.0f;
+            s_hud.min           = 0.0f;
             s_hud.max           = 2.0f;
             s_hud.step          = 1.0f;
-            s_hud.slider_value  = g_hud_theme.load() ? 2.0f : 1.0f;
+            s_hud.slider_value  = (float)g_hud_theme.load();
             s_hud.display_scale = 1.0f;
             s_hud.decimals      = 0;
-            s_hud.needs_restart = 1;
+            s_hud.needs_restart = 0;
             s_hud.on_slide      = on_slider_changed;
             api->add_setting(g_mod, &s_hud);
 

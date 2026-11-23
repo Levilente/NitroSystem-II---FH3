@@ -16,7 +16,80 @@
               <ResourceDictionary Source="/Resources/Anthem/Shared_Hud.xaml"/>
             </ResourceDictionary.MergedDictionaries>
             -->
-            <Color x:Key="A_Color_Nitrous_Fill">#FF2DB2FF</Color>
+            <!-- NOS colours of the three HUD themes; item 14's X (set by the mod) picks one: 0 FH3 (the gear's cyan), 1 FH2 (yellow), 2 FH2 Fast & Furious -->
+            <Style x:Key="NosFillStyle" TargetType="Path">
+                <Setter Property="Fill"><Setter.Value><SolidColorBrush Color="#FF00FEEB"/></Setter.Value></Setter>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Path=DataContext.RPMGaugeNumbers[14].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}" Value="1"><Setter Property="Fill"><Setter.Value><SolidColorBrush Color="#FFF4F444"/></Setter.Value></Setter></DataTrigger>
+                    <DataTrigger Binding="{Binding Path=DataContext.RPMGaugeNumbers[14].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}" Value="2"><Setter Property="Fill"><Setter.Value><SolidColorBrush Color="#FF2DB2FF"/></Setter.Value></Setter></DataTrigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="NosBorderStyle" TargetType="Path">
+                <Setter Property="Fill"><Setter.Value><SolidColorBrush Color="#FF00B2A4"/></Setter.Value></Setter>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Path=DataContext.RPMGaugeNumbers[14].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}" Value="1"><Setter Property="Fill"><Setter.Value><SolidColorBrush Color="#FFB3B32F"/></Setter.Value></Setter></DataTrigger>
+                    <DataTrigger Binding="{Binding Path=DataContext.RPMGaugeNumbers[14].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}" Value="2"><Setter Property="Fill"><Setter.Value><SolidColorBrush Color="#FF1D7FBF"/></Setter.Value></Setter></DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <SolidColorBrush x:Key="A_Brush_NosPillBackground" Color="#35FFFFFF"/>
+            <Style x:Key="NosBarMaterialStyle" TargetType="local:FZMaterial">
+                <Setter Property="Color" Value="#FF00FEEB"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Path=DataContext.RPMGaugeNumbers[14].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}" Value="1"><Setter Property="Color" Value="#FFF4F444"/></DataTrigger>
+                    <DataTrigger Binding="{Binding Path=DataContext.RPMGaugeNumbers[14].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}" Value="2"><Setter Property="Color" Value="#FF2DB2FF"/></DataTrigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="NosGlowStyle1" TargetType="Path">
+                <Setter Property="StrokeLineJoin" Value="Round"/>
+                <Setter Property="Stroke"><Setter.Value><SolidColorBrush Color="#FF00FEEB" Opacity="0.14"/></Setter.Value></Setter>
+                <Setter Property="Visibility" Value="Collapsed"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Path=DataContext.RPMGaugeNumbers[14].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}" Value="1"><Setter Property="Stroke"><Setter.Value><SolidColorBrush Color="#FFF4F444" Opacity="0.14"/></Setter.Value></Setter></DataTrigger>
+                    <DataTrigger Binding="{Binding Path=DataContext.RPMGaugeNumbers[14].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}" Value="2"><Setter Property="Stroke"><Setter.Value><SolidColorBrush Color="#FF2DB2FF" Opacity="0.14"/></Setter.Value></Setter></DataTrigger>
+                    <DataTrigger Binding="{Binding Path=DataContext.RPMGaugeNumbers[18].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}" Value="0"><Setter Property="Visibility" Value="Visible"/></DataTrigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="NosGlowStyle2" TargetType="Path">
+                <Setter Property="StrokeLineJoin" Value="Round"/>
+                <Setter Property="Stroke"><Setter.Value><SolidColorBrush Color="#FF00FEEB" Opacity="0.14"/></Setter.Value></Setter>
+                <Setter Property="Visibility" Value="Collapsed"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Path=DataContext.RPMGaugeNumbers[14].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}" Value="1"><Setter Property="Stroke"><Setter.Value><SolidColorBrush Color="#FFF4F444" Opacity="0.14"/></Setter.Value></Setter></DataTrigger>
+                    <DataTrigger Binding="{Binding Path=DataContext.RPMGaugeNumbers[14].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}" Value="2"><Setter Property="Stroke"><Setter.Value><SolidColorBrush Color="#FF2DB2FF" Opacity="0.14"/></Setter.Value></Setter></DataTrigger>
+                    <DataTrigger Binding="{Binding Path=DataContext.RPMGaugeNumbers[19].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}" Value="0"><Setter Property="Visibility" Value="Visible"/></DataTrigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="NosGlowStyle3" TargetType="Path">
+                <Setter Property="StrokeLineJoin" Value="Round"/>
+                <Setter Property="Stroke"><Setter.Value><SolidColorBrush Color="#FF00FEEB" Opacity="0.14"/></Setter.Value></Setter>
+                <Setter Property="Visibility" Value="Collapsed"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Path=DataContext.RPMGaugeNumbers[14].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}" Value="1"><Setter Property="Stroke"><Setter.Value><SolidColorBrush Color="#FFF4F444" Opacity="0.14"/></Setter.Value></Setter></DataTrigger>
+                    <DataTrigger Binding="{Binding Path=DataContext.RPMGaugeNumbers[14].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}" Value="2"><Setter Property="Stroke"><Setter.Value><SolidColorBrush Color="#FF2DB2FF" Opacity="0.14"/></Setter.Value></Setter></DataTrigger>
+                    <DataTrigger Binding="{Binding Path=DataContext.RPMGaugeNumbers[20].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}" Value="0"><Setter Property="Visibility" Value="Visible"/></DataTrigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="NosGlowStyle4" TargetType="Path">
+                <Setter Property="StrokeLineJoin" Value="Round"/>
+                <Setter Property="Stroke"><Setter.Value><SolidColorBrush Color="#FF00FEEB" Opacity="0.14"/></Setter.Value></Setter>
+                <Setter Property="Visibility" Value="Collapsed"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Path=DataContext.RPMGaugeNumbers[14].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}" Value="1"><Setter Property="Stroke"><Setter.Value><SolidColorBrush Color="#FFF4F444" Opacity="0.14"/></Setter.Value></Setter></DataTrigger>
+                    <DataTrigger Binding="{Binding Path=DataContext.RPMGaugeNumbers[14].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}" Value="2"><Setter Property="Stroke"><Setter.Value><SolidColorBrush Color="#FF2DB2FF" Opacity="0.14"/></Setter.Value></Setter></DataTrigger>
+                    <DataTrigger Binding="{Binding Path=DataContext.RPMGaugeNumbers[16].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}" Value="0"><Setter Property="Visibility" Value="Visible"/></DataTrigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="NosGlowStyle5" TargetType="Path">
+                <Setter Property="StrokeLineJoin" Value="Round"/>
+                <Setter Property="Stroke"><Setter.Value><SolidColorBrush Color="#FF00FEEB" Opacity="0.14"/></Setter.Value></Setter>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Path=DataContext.RPMGaugeNumbers[14].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}" Value="1"><Setter Property="Stroke"><Setter.Value><SolidColorBrush Color="#FFF4F444" Opacity="0.14"/></Setter.Value></Setter></DataTrigger>
+                    <DataTrigger Binding="{Binding Path=DataContext.RPMGaugeNumbers[14].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}" Value="2"><Setter Property="Stroke"><Setter.Value><SolidColorBrush Color="#FF2DB2FF" Opacity="0.14"/></Setter.Value></Setter></DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Color x:Key="A_Color_Nitrous_Fill">#FF00FEEB</Color>
             <Color x:Key="A_Color_Nitrous_Background">#35FFFFFF</Color>
             <System:Double x:Key="A_Double_Speedo_Width">300</System:Double>
             <System:Double x:Key="A_Double_Speedo_Analog_Width">312</System:Double>
@@ -496,6 +569,7 @@
                     <ImageSource x:Key="A_BitmapImage_STMIcon_On">/ForzaUI;component/Textures/Data_Bound/Anthem/HUD/HUD_Dial_Assist_Digital_STM_On.png</ImageSource>
                 </DataTemplate.Resources>
                 <Grid DataContext="{Binding Path=DataContext, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}">
+                    <Grid Margin="0,0,0,25"><!-- DigitalWrapper: lifts the whole digital speedometer -->
                     <local:FZMaterial x:Name="Gears" Width="85" Height="86" ImageSource="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_Digital_GearContainer.png" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,253,35" Color="{StaticResource A_Color_Faded_HUDInfo_Digital}">
                         <Grid Margin="-1,0,1,0" Width="85" Height="86">
                             <local:FZMaterial x:Name="Gear" Style="{StaticResource A_Style_FZMaterial_GearDisplay_Digital}" /> <!-- Gear -->
@@ -514,58 +588,35 @@
                     <local:FZMaterial x:Name="ABS" Style="{StaticResource A_Style_FZMaterial_Digital_ABSLight}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,6,78"/>
                     <local:FZMaterial x:Name="TCR" Style="{StaticResource A_Style_FZMaterial_Digital_TCRLight}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,12,50"/>
                     <local:FZMaterial x:Name="STM" Style="{StaticResource A_Style_FZMaterial_Digital_STMLight}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,18,21"/>
-                    <Grid Width="331" Height="24" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,-30" IsHitTestVisible="False" Opacity="{Binding RPMGaugeNumbers[20].YPos}">
-                        <Rectangle Height="2" Width="331" VerticalAlignment="Top" Fill="#FFFFFFFF"/>
-                        <Rectangle Width="2" Height="20" HorizontalAlignment="Left" VerticalAlignment="Top" Fill="#FFFFFFFF"/>
-                        <Rectangle Width="2" Height="20" HorizontalAlignment="Right" VerticalAlignment="Top" Fill="#FFFFFFFF"/>
-                        <Grid Width="331" Height="8" VerticalAlignment="Top" Margin="0,9,0,0">
-                            <Grid DataContext="{Binding RPMGaugeNumbers[17]}" Width="79" Height="8" Margin="0,0,0,0" HorizontalAlignment="Left">
-                                <Rectangle Fill="#35FFFFFF"/>
-                                <Grid HorizontalAlignment="Stretch" RenderTransformOrigin="0.0,0.5">
-                                    <Grid.RenderTransform><ScaleTransform ScaleX="{Binding XPos}"/></Grid.RenderTransform>
-                                    <Rectangle Fill="#FF2DB2FF"/>
-                                    <Rectangle Width="16" HorizontalAlignment="Right" Fill="#2AEAFAFF" Opacity="{Binding Path=DataContext.RPMGaugeNumbers[13].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"/>
-                                    <Rectangle Width="8" HorizontalAlignment="Right" Fill="#55EAFAFF" Opacity="{Binding Path=DataContext.RPMGaugeNumbers[13].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"/>
-                                    <Rectangle Width="3" HorizontalAlignment="Right" Fill="#FFFFFFFF" Opacity="{Binding Path=DataContext.RPMGaugeNumbers[13].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"/>
-                                </Grid>
-                            </Grid>
-                            <Grid DataContext="{Binding RPMGaugeNumbers[18]}" Width="79" Height="8" Margin="84,0,0,0" HorizontalAlignment="Left">
-                                <Rectangle Fill="#35FFFFFF"/>
-                                <Grid HorizontalAlignment="Stretch" RenderTransformOrigin="0.0,0.5">
-                                    <Grid.RenderTransform><ScaleTransform ScaleX="{Binding XPos}"/></Grid.RenderTransform>
-                                    <Rectangle Fill="#FF2DB2FF"/>
-                                    <Rectangle Width="16" HorizontalAlignment="Right" Fill="#2AEAFAFF" Opacity="{Binding Path=DataContext.RPMGaugeNumbers[13].YPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"/>
-                                    <Rectangle Width="8" HorizontalAlignment="Right" Fill="#55EAFAFF" Opacity="{Binding Path=DataContext.RPMGaugeNumbers[13].YPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"/>
-                                    <Rectangle Width="3" HorizontalAlignment="Right" Fill="#FFFFFFFF" Opacity="{Binding Path=DataContext.RPMGaugeNumbers[13].YPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"/>
-                                </Grid>
-                            </Grid>
-                            <Grid DataContext="{Binding RPMGaugeNumbers[19]}" Width="79" Height="8" Margin="168,0,0,0" HorizontalAlignment="Left">
-                                <Rectangle Fill="#35FFFFFF"/>
-                                <Grid HorizontalAlignment="Stretch" RenderTransformOrigin="0.0,0.5">
-                                    <Grid.RenderTransform><ScaleTransform ScaleX="{Binding XPos}"/></Grid.RenderTransform>
-                                    <Rectangle Fill="#FF2DB2FF"/>
-                                    <Rectangle Width="16" HorizontalAlignment="Right" Fill="#2AEAFAFF" Opacity="{Binding Path=DataContext.RPMGaugeNumbers[14].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"/>
-                                    <Rectangle Width="8" HorizontalAlignment="Right" Fill="#55EAFAFF" Opacity="{Binding Path=DataContext.RPMGaugeNumbers[14].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"/>
-                                    <Rectangle Width="3" HorizontalAlignment="Right" Fill="#FFFFFFFF" Opacity="{Binding Path=DataContext.RPMGaugeNumbers[14].XPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"/>
-                                </Grid>
-                            </Grid>
-                            <Grid DataContext="{Binding RPMGaugeNumbers[20]}" Width="79" Height="8" Margin="252,0,0,0" HorizontalAlignment="Left">
-                                <Rectangle Fill="#35FFFFFF"/>
-                                <Grid HorizontalAlignment="Stretch" RenderTransformOrigin="0.0,0.5">
-                                    <Grid.RenderTransform><ScaleTransform ScaleX="{Binding XPos}"/></Grid.RenderTransform>
-                                    <Rectangle Fill="#FF2DB2FF"/>
-                                    <Rectangle Width="16" HorizontalAlignment="Right" Fill="#2AEAFAFF" Opacity="{Binding Path=DataContext.RPMGaugeNumbers[14].YPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"/>
-                                    <Rectangle Width="8" HorizontalAlignment="Right" Fill="#55EAFAFF" Opacity="{Binding Path=DataContext.RPMGaugeNumbers[14].YPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"/>
-                                    <Rectangle Width="3" HorizontalAlignment="Right" Fill="#FFFFFFFF" Opacity="{Binding Path=DataContext.RPMGaugeNumbers[14].YPos, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"/>
-                                </Grid>
-                            </Grid>
-                        </Grid>
-                    </Grid>
                     <local:FZMaterial x:Name="Gauge" Height="{StaticResource A_Double_Speedo_Digital_Height}" Width="{StaticResource A_Double_Speedo_Digital_Width}" RenderTransformOrigin="0.5,0.5" Margin="0,0,0,-5" VerticalAlignment="Bottom"> <!-- Gauge -->
                         <local:FZMaterial.Preset>
                             <local:FZMaterialPresetDigitalGauge FillAmount="{Binding GaugeFillAmount}" RedLineAmount="{Binding GaugeRedlineAmount}" SmallDash="{Binding GaugeSmallDashAmount}" LargeDash="{Binding GaugeLargeDashAmount}" />
                         </local:FZMaterial.Preset>
-                    </local:FZMaterial> 
+                    </local:FZMaterial>
+                    <!-- NOS bar (new design), a copy of the tachometer's look: 47 rounded slanted pills, a dim background of all of them, the filled ones in the NOS colour,
+                         the last filled one glowing (only while the nitro burns, item 16's Y = 1). Item 13: X = where the fill ends, in px / 400 (an absolute-mapped opacity mask, whole pills), Y = the same in px (for the white last pill). The pills are upright inside a skewed wrapper, so the clip edge is slanted like the pills. -->
+                    <Grid Width="{StaticResource A_Double_Speedo_Digital_Width}" Height="80" Margin="1,0,-1,-36" VerticalAlignment="Bottom" IsHitTestVisible="False" Opacity="{Binding RPMGaugeNumbers[20].YPos}">
+                        <Grid Width="365" Height="80" HorizontalAlignment="Left" VerticalAlignment="Top">
+                            <Grid.RenderTransform><SkewTransform AngleX="-10.574" CenterX="0" CenterY="41.5"/></Grid.RenderTransform>
+                            <Path Fill="{StaticResource A_Brush_NosPillBackground}" Data="M 27.000,41.500 L 28.700,41.500 A 1.50,1.50 0 0 1 30.200,43.000 L 30.200,62.500 A 1.50,1.50 0 0 1 28.700,64.000 L 27.000,64.000 A 1.50,1.50 0 0 1 25.500,62.500 L 25.500,43.000 A 1.50,1.50 0 0 1 27.000,41.500 Z M 33.565,41.500 L 35.265,41.500 A 1.50,1.50 0 0 1 36.765,43.000 L 36.765,62.500 A 1.50,1.50 0 0 1 35.265,64.000 L 33.565,64.000 A 1.50,1.50 0 0 1 32.065,62.500 L 32.065,43.000 A 1.50,1.50 0 0 1 33.565,41.500 Z M 40.130,41.500 L 41.830,41.500 A 1.50,1.50 0 0 1 43.330,43.000 L 43.330,62.500 A 1.50,1.50 0 0 1 41.830,64.000 L 40.130,64.000 A 1.50,1.50 0 0 1 38.630,62.500 L 38.630,43.000 A 1.50,1.50 0 0 1 40.130,41.500 Z M 46.695,41.500 L 48.395,41.500 A 1.50,1.50 0 0 1 49.895,43.000 L 49.895,62.500 A 1.50,1.50 0 0 1 48.395,64.000 L 46.695,64.000 A 1.50,1.50 0 0 1 45.195,62.500 L 45.195,43.000 A 1.50,1.50 0 0 1 46.695,41.500 Z M 53.260,41.500 L 54.960,41.500 A 1.50,1.50 0 0 1 56.460,43.000 L 56.460,62.500 A 1.50,1.50 0 0 1 54.960,64.000 L 53.260,64.000 A 1.50,1.50 0 0 1 51.760,62.500 L 51.760,43.000 A 1.50,1.50 0 0 1 53.260,41.500 Z M 59.825,41.500 L 61.525,41.500 A 1.50,1.50 0 0 1 63.025,43.000 L 63.025,62.500 A 1.50,1.50 0 0 1 61.525,64.000 L 59.825,64.000 A 1.50,1.50 0 0 1 58.325,62.500 L 58.325,43.000 A 1.50,1.50 0 0 1 59.825,41.500 Z M 66.390,41.500 L 68.090,41.500 A 1.50,1.50 0 0 1 69.590,43.000 L 69.590,62.500 A 1.50,1.50 0 0 1 68.090,64.000 L 66.390,64.000 A 1.50,1.50 0 0 1 64.890,62.500 L 64.890,43.000 A 1.50,1.50 0 0 1 66.390,41.500 Z M 72.955,41.500 L 74.655,41.500 A 1.50,1.50 0 0 1 76.155,43.000 L 76.155,62.500 A 1.50,1.50 0 0 1 74.655,64.000 L 72.955,64.000 A 1.50,1.50 0 0 1 71.455,62.500 L 71.455,43.000 A 1.50,1.50 0 0 1 72.955,41.500 Z M 79.520,41.500 L 81.220,41.500 A 1.50,1.50 0 0 1 82.720,43.000 L 82.720,62.500 A 1.50,1.50 0 0 1 81.220,64.000 L 79.520,64.000 A 1.50,1.50 0 0 1 78.020,62.500 L 78.020,43.000 A 1.50,1.50 0 0 1 79.520,41.500 Z M 86.085,41.500 L 87.785,41.500 A 1.50,1.50 0 0 1 89.285,43.000 L 89.285,62.500 A 1.50,1.50 0 0 1 87.785,64.000 L 86.085,64.000 A 1.50,1.50 0 0 1 84.585,62.500 L 84.585,43.000 A 1.50,1.50 0 0 1 86.085,41.500 Z M 92.650,41.500 L 94.350,41.500 A 1.50,1.50 0 0 1 95.850,43.000 L 95.850,62.500 A 1.50,1.50 0 0 1 94.350,64.000 L 92.650,64.000 A 1.50,1.50 0 0 1 91.150,62.500 L 91.150,43.000 A 1.50,1.50 0 0 1 92.650,41.500 Z M 99.215,41.500 L 100.915,41.500 A 1.50,1.50 0 0 1 102.415,43.000 L 102.415,62.500 A 1.50,1.50 0 0 1 100.915,64.000 L 99.215,64.000 A 1.50,1.50 0 0 1 97.715,62.500 L 97.715,43.000 A 1.50,1.50 0 0 1 99.215,41.500 Z M 105.780,41.500 L 107.480,41.500 A 1.50,1.50 0 0 1 108.980,43.000 L 108.980,62.500 A 1.50,1.50 0 0 1 107.480,64.000 L 105.780,64.000 A 1.50,1.50 0 0 1 104.280,62.500 L 104.280,43.000 A 1.50,1.50 0 0 1 105.780,41.500 Z M 112.345,41.500 L 114.045,41.500 A 1.50,1.50 0 0 1 115.545,43.000 L 115.545,62.500 A 1.50,1.50 0 0 1 114.045,64.000 L 112.345,64.000 A 1.50,1.50 0 0 1 110.845,62.500 L 110.845,43.000 A 1.50,1.50 0 0 1 112.345,41.500 Z M 118.910,41.500 L 120.610,41.500 A 1.50,1.50 0 0 1 122.110,43.000 L 122.110,62.500 A 1.50,1.50 0 0 1 120.610,64.000 L 118.910,64.000 A 1.50,1.50 0 0 1 117.410,62.500 L 117.410,43.000 A 1.50,1.50 0 0 1 118.910,41.500 Z M 125.475,41.500 L 127.175,41.500 A 1.50,1.50 0 0 1 128.675,43.000 L 128.675,62.500 A 1.50,1.50 0 0 1 127.175,64.000 L 125.475,64.000 A 1.50,1.50 0 0 1 123.975,62.500 L 123.975,43.000 A 1.50,1.50 0 0 1 125.475,41.500 Z M 132.040,41.500 L 133.740,41.500 A 1.50,1.50 0 0 1 135.240,43.000 L 135.240,62.500 A 1.50,1.50 0 0 1 133.740,64.000 L 132.040,64.000 A 1.50,1.50 0 0 1 130.540,62.500 L 130.540,43.000 A 1.50,1.50 0 0 1 132.040,41.500 Z M 138.605,41.500 L 140.305,41.500 A 1.50,1.50 0 0 1 141.805,43.000 L 141.805,62.500 A 1.50,1.50 0 0 1 140.305,64.000 L 138.605,64.000 A 1.50,1.50 0 0 1 137.105,62.500 L 137.105,43.000 A 1.50,1.50 0 0 1 138.605,41.500 Z M 145.170,41.500 L 146.870,41.500 A 1.50,1.50 0 0 1 148.370,43.000 L 148.370,62.500 A 1.50,1.50 0 0 1 146.870,64.000 L 145.170,64.000 A 1.50,1.50 0 0 1 143.670,62.500 L 143.670,43.000 A 1.50,1.50 0 0 1 145.170,41.500 Z M 151.735,41.500 L 153.435,41.500 A 1.50,1.50 0 0 1 154.935,43.000 L 154.935,62.500 A 1.50,1.50 0 0 1 153.435,64.000 L 151.735,64.000 A 1.50,1.50 0 0 1 150.235,62.500 L 150.235,43.000 A 1.50,1.50 0 0 1 151.735,41.500 Z M 158.300,41.500 L 160.000,41.500 A 1.50,1.50 0 0 1 161.500,43.000 L 161.500,62.500 A 1.50,1.50 0 0 1 160.000,64.000 L 158.300,64.000 A 1.50,1.50 0 0 1 156.800,62.500 L 156.800,43.000 A 1.50,1.50 0 0 1 158.300,41.500 Z M 164.865,41.500 L 166.565,41.500 A 1.50,1.50 0 0 1 168.065,43.000 L 168.065,62.500 A 1.50,1.50 0 0 1 166.565,64.000 L 164.865,64.000 A 1.50,1.50 0 0 1 163.365,62.500 L 163.365,43.000 A 1.50,1.50 0 0 1 164.865,41.500 Z M 171.430,41.500 L 173.130,41.500 A 1.50,1.50 0 0 1 174.630,43.000 L 174.630,62.500 A 1.50,1.50 0 0 1 173.130,64.000 L 171.430,64.000 A 1.50,1.50 0 0 1 169.930,62.500 L 169.930,43.000 A 1.50,1.50 0 0 1 171.430,41.500 Z M 177.995,41.500 L 179.695,41.500 A 1.50,1.50 0 0 1 181.195,43.000 L 181.195,62.500 A 1.50,1.50 0 0 1 179.695,64.000 L 177.995,64.000 A 1.50,1.50 0 0 1 176.495,62.500 L 176.495,43.000 A 1.50,1.50 0 0 1 177.995,41.500 Z M 184.560,41.500 L 186.260,41.500 A 1.50,1.50 0 0 1 187.760,43.000 L 187.760,62.500 A 1.50,1.50 0 0 1 186.260,64.000 L 184.560,64.000 A 1.50,1.50 0 0 1 183.060,62.500 L 183.060,43.000 A 1.50,1.50 0 0 1 184.560,41.500 Z M 191.125,41.500 L 192.825,41.500 A 1.50,1.50 0 0 1 194.325,43.000 L 194.325,62.500 A 1.50,1.50 0 0 1 192.825,64.000 L 191.125,64.000 A 1.50,1.50 0 0 1 189.625,62.500 L 189.625,43.000 A 1.50,1.50 0 0 1 191.125,41.500 Z M 197.690,41.500 L 199.390,41.500 A 1.50,1.50 0 0 1 200.890,43.000 L 200.890,62.500 A 1.50,1.50 0 0 1 199.390,64.000 L 197.690,64.000 A 1.50,1.50 0 0 1 196.190,62.500 L 196.190,43.000 A 1.50,1.50 0 0 1 197.690,41.500 Z M 204.255,41.500 L 205.955,41.500 A 1.50,1.50 0 0 1 207.455,43.000 L 207.455,62.500 A 1.50,1.50 0 0 1 205.955,64.000 L 204.255,64.000 A 1.50,1.50 0 0 1 202.755,62.500 L 202.755,43.000 A 1.50,1.50 0 0 1 204.255,41.500 Z M 210.820,41.500 L 212.520,41.500 A 1.50,1.50 0 0 1 214.020,43.000 L 214.020,62.500 A 1.50,1.50 0 0 1 212.520,64.000 L 210.820,64.000 A 1.50,1.50 0 0 1 209.320,62.500 L 209.320,43.000 A 1.50,1.50 0 0 1 210.820,41.500 Z M 217.385,41.500 L 219.085,41.500 A 1.50,1.50 0 0 1 220.585,43.000 L 220.585,62.500 A 1.50,1.50 0 0 1 219.085,64.000 L 217.385,64.000 A 1.50,1.50 0 0 1 215.885,62.500 L 215.885,43.000 A 1.50,1.50 0 0 1 217.385,41.500 Z M 223.950,41.500 L 225.650,41.500 A 1.50,1.50 0 0 1 227.150,43.000 L 227.150,62.500 A 1.50,1.50 0 0 1 225.650,64.000 L 223.950,64.000 A 1.50,1.50 0 0 1 222.450,62.500 L 222.450,43.000 A 1.50,1.50 0 0 1 223.950,41.500 Z M 230.515,41.500 L 232.215,41.500 A 1.50,1.50 0 0 1 233.715,43.000 L 233.715,62.500 A 1.50,1.50 0 0 1 232.215,64.000 L 230.515,64.000 A 1.50,1.50 0 0 1 229.015,62.500 L 229.015,43.000 A 1.50,1.50 0 0 1 230.515,41.500 Z M 237.080,41.500 L 238.780,41.500 A 1.50,1.50 0 0 1 240.280,43.000 L 240.280,62.500 A 1.50,1.50 0 0 1 238.780,64.000 L 237.080,64.000 A 1.50,1.50 0 0 1 235.580,62.500 L 235.580,43.000 A 1.50,1.50 0 0 1 237.080,41.500 Z M 243.645,41.500 L 245.345,41.500 A 1.50,1.50 0 0 1 246.845,43.000 L 246.845,62.500 A 1.50,1.50 0 0 1 245.345,64.000 L 243.645,64.000 A 1.50,1.50 0 0 1 242.145,62.500 L 242.145,43.000 A 1.50,1.50 0 0 1 243.645,41.500 Z M 250.210,41.500 L 251.910,41.500 A 1.50,1.50 0 0 1 253.410,43.000 L 253.410,62.500 A 1.50,1.50 0 0 1 251.910,64.000 L 250.210,64.000 A 1.50,1.50 0 0 1 248.710,62.500 L 248.710,43.000 A 1.50,1.50 0 0 1 250.210,41.500 Z M 256.775,41.500 L 258.475,41.500 A 1.50,1.50 0 0 1 259.975,43.000 L 259.975,62.500 A 1.50,1.50 0 0 1 258.475,64.000 L 256.775,64.000 A 1.50,1.50 0 0 1 255.275,62.500 L 255.275,43.000 A 1.50,1.50 0 0 1 256.775,41.500 Z M 263.340,41.500 L 265.040,41.500 A 1.50,1.50 0 0 1 266.540,43.000 L 266.540,62.500 A 1.50,1.50 0 0 1 265.040,64.000 L 263.340,64.000 A 1.50,1.50 0 0 1 261.840,62.500 L 261.840,43.000 A 1.50,1.50 0 0 1 263.340,41.500 Z M 269.905,41.500 L 271.605,41.500 A 1.50,1.50 0 0 1 273.105,43.000 L 273.105,62.500 A 1.50,1.50 0 0 1 271.605,64.000 L 269.905,64.000 A 1.50,1.50 0 0 1 268.405,62.500 L 268.405,43.000 A 1.50,1.50 0 0 1 269.905,41.500 Z M 276.470,41.500 L 278.170,41.500 A 1.50,1.50 0 0 1 279.670,43.000 L 279.670,62.500 A 1.50,1.50 0 0 1 278.170,64.000 L 276.470,64.000 A 1.50,1.50 0 0 1 274.970,62.500 L 274.970,43.000 A 1.50,1.50 0 0 1 276.470,41.500 Z M 283.035,41.500 L 284.735,41.500 A 1.50,1.50 0 0 1 286.235,43.000 L 286.235,62.500 A 1.50,1.50 0 0 1 284.735,64.000 L 283.035,64.000 A 1.50,1.50 0 0 1 281.535,62.500 L 281.535,43.000 A 1.50,1.50 0 0 1 283.035,41.500 Z M 289.600,41.500 L 291.300,41.500 A 1.50,1.50 0 0 1 292.800,43.000 L 292.800,62.500 A 1.50,1.50 0 0 1 291.300,64.000 L 289.600,64.000 A 1.50,1.50 0 0 1 288.100,62.500 L 288.100,43.000 A 1.50,1.50 0 0 1 289.600,41.500 Z M 296.165,41.500 L 297.865,41.500 A 1.50,1.50 0 0 1 299.365,43.000 L 299.365,62.500 A 1.50,1.50 0 0 1 297.865,64.000 L 296.165,64.000 A 1.50,1.50 0 0 1 294.665,62.500 L 294.665,43.000 A 1.50,1.50 0 0 1 296.165,41.500 Z M 302.730,41.500 L 304.430,41.500 A 1.50,1.50 0 0 1 305.930,43.000 L 305.930,62.500 A 1.50,1.50 0 0 1 304.430,64.000 L 302.730,64.000 A 1.50,1.50 0 0 1 301.230,62.500 L 301.230,43.000 A 1.50,1.50 0 0 1 302.730,41.500 Z M 309.295,41.500 L 310.995,41.500 A 1.50,1.50 0 0 1 312.495,43.000 L 312.495,62.500 A 1.50,1.50 0 0 1 310.995,64.000 L 309.295,64.000 A 1.50,1.50 0 0 1 307.795,62.500 L 307.795,43.000 A 1.50,1.50 0 0 1 309.295,41.500 Z M 315.860,41.500 L 317.560,41.500 A 1.50,1.50 0 0 1 319.060,43.000 L 319.060,62.500 A 1.50,1.50 0 0 1 317.560,64.000 L 315.860,64.000 A 1.50,1.50 0 0 1 314.360,62.500 L 314.360,43.000 A 1.50,1.50 0 0 1 315.860,41.500 Z M 322.425,41.500 L 324.125,41.500 A 1.50,1.50 0 0 1 325.625,43.000 L 325.625,62.500 A 1.50,1.50 0 0 1 324.125,64.000 L 322.425,64.000 A 1.50,1.50 0 0 1 320.925,62.500 L 320.925,43.000 A 1.50,1.50 0 0 1 322.425,41.500 Z M 328.990,41.500 L 330.690,41.500 A 1.50,1.50 0 0 1 332.190,43.000 L 332.190,62.500 A 1.50,1.50 0 0 1 330.690,64.000 L 328.990,64.000 A 1.50,1.50 0 0 1 327.490,62.500 L 327.490,43.000 A 1.50,1.50 0 0 1 328.990,41.500 Z"/>
+                            <Path Style="{StaticResource NosFillStyle}" Data="M 27.000,41.500 L 28.700,41.500 A 1.50,1.50 0 0 1 30.200,43.000 L 30.200,62.500 A 1.50,1.50 0 0 1 28.700,64.000 L 27.000,64.000 A 1.50,1.50 0 0 1 25.500,62.500 L 25.500,43.000 A 1.50,1.50 0 0 1 27.000,41.500 Z M 33.565,41.500 L 35.265,41.500 A 1.50,1.50 0 0 1 36.765,43.000 L 36.765,62.500 A 1.50,1.50 0 0 1 35.265,64.000 L 33.565,64.000 A 1.50,1.50 0 0 1 32.065,62.500 L 32.065,43.000 A 1.50,1.50 0 0 1 33.565,41.500 Z M 40.130,41.500 L 41.830,41.500 A 1.50,1.50 0 0 1 43.330,43.000 L 43.330,62.500 A 1.50,1.50 0 0 1 41.830,64.000 L 40.130,64.000 A 1.50,1.50 0 0 1 38.630,62.500 L 38.630,43.000 A 1.50,1.50 0 0 1 40.130,41.500 Z M 46.695,41.500 L 48.395,41.500 A 1.50,1.50 0 0 1 49.895,43.000 L 49.895,62.500 A 1.50,1.50 0 0 1 48.395,64.000 L 46.695,64.000 A 1.50,1.50 0 0 1 45.195,62.500 L 45.195,43.000 A 1.50,1.50 0 0 1 46.695,41.500 Z M 53.260,41.500 L 54.960,41.500 A 1.50,1.50 0 0 1 56.460,43.000 L 56.460,62.500 A 1.50,1.50 0 0 1 54.960,64.000 L 53.260,64.000 A 1.50,1.50 0 0 1 51.760,62.500 L 51.760,43.000 A 1.50,1.50 0 0 1 53.260,41.500 Z M 59.825,41.500 L 61.525,41.500 A 1.50,1.50 0 0 1 63.025,43.000 L 63.025,62.500 A 1.50,1.50 0 0 1 61.525,64.000 L 59.825,64.000 A 1.50,1.50 0 0 1 58.325,62.500 L 58.325,43.000 A 1.50,1.50 0 0 1 59.825,41.500 Z M 66.390,41.500 L 68.090,41.500 A 1.50,1.50 0 0 1 69.590,43.000 L 69.590,62.500 A 1.50,1.50 0 0 1 68.090,64.000 L 66.390,64.000 A 1.50,1.50 0 0 1 64.890,62.500 L 64.890,43.000 A 1.50,1.50 0 0 1 66.390,41.500 Z M 72.955,41.500 L 74.655,41.500 A 1.50,1.50 0 0 1 76.155,43.000 L 76.155,62.500 A 1.50,1.50 0 0 1 74.655,64.000 L 72.955,64.000 A 1.50,1.50 0 0 1 71.455,62.500 L 71.455,43.000 A 1.50,1.50 0 0 1 72.955,41.500 Z M 79.520,41.500 L 81.220,41.500 A 1.50,1.50 0 0 1 82.720,43.000 L 82.720,62.500 A 1.50,1.50 0 0 1 81.220,64.000 L 79.520,64.000 A 1.50,1.50 0 0 1 78.020,62.500 L 78.020,43.000 A 1.50,1.50 0 0 1 79.520,41.500 Z M 86.085,41.500 L 87.785,41.500 A 1.50,1.50 0 0 1 89.285,43.000 L 89.285,62.500 A 1.50,1.50 0 0 1 87.785,64.000 L 86.085,64.000 A 1.50,1.50 0 0 1 84.585,62.500 L 84.585,43.000 A 1.50,1.50 0 0 1 86.085,41.500 Z M 92.650,41.500 L 94.350,41.500 A 1.50,1.50 0 0 1 95.850,43.000 L 95.850,62.500 A 1.50,1.50 0 0 1 94.350,64.000 L 92.650,64.000 A 1.50,1.50 0 0 1 91.150,62.500 L 91.150,43.000 A 1.50,1.50 0 0 1 92.650,41.500 Z M 99.215,41.500 L 100.915,41.500 A 1.50,1.50 0 0 1 102.415,43.000 L 102.415,62.500 A 1.50,1.50 0 0 1 100.915,64.000 L 99.215,64.000 A 1.50,1.50 0 0 1 97.715,62.500 L 97.715,43.000 A 1.50,1.50 0 0 1 99.215,41.500 Z M 105.780,41.500 L 107.480,41.500 A 1.50,1.50 0 0 1 108.980,43.000 L 108.980,62.500 A 1.50,1.50 0 0 1 107.480,64.000 L 105.780,64.000 A 1.50,1.50 0 0 1 104.280,62.500 L 104.280,43.000 A 1.50,1.50 0 0 1 105.780,41.500 Z M 112.345,41.500 L 114.045,41.500 A 1.50,1.50 0 0 1 115.545,43.000 L 115.545,62.500 A 1.50,1.50 0 0 1 114.045,64.000 L 112.345,64.000 A 1.50,1.50 0 0 1 110.845,62.500 L 110.845,43.000 A 1.50,1.50 0 0 1 112.345,41.500 Z M 118.910,41.500 L 120.610,41.500 A 1.50,1.50 0 0 1 122.110,43.000 L 122.110,62.500 A 1.50,1.50 0 0 1 120.610,64.000 L 118.910,64.000 A 1.50,1.50 0 0 1 117.410,62.500 L 117.410,43.000 A 1.50,1.50 0 0 1 118.910,41.500 Z M 125.475,41.500 L 127.175,41.500 A 1.50,1.50 0 0 1 128.675,43.000 L 128.675,62.500 A 1.50,1.50 0 0 1 127.175,64.000 L 125.475,64.000 A 1.50,1.50 0 0 1 123.975,62.500 L 123.975,43.000 A 1.50,1.50 0 0 1 125.475,41.500 Z M 132.040,41.500 L 133.740,41.500 A 1.50,1.50 0 0 1 135.240,43.000 L 135.240,62.500 A 1.50,1.50 0 0 1 133.740,64.000 L 132.040,64.000 A 1.50,1.50 0 0 1 130.540,62.500 L 130.540,43.000 A 1.50,1.50 0 0 1 132.040,41.500 Z M 138.605,41.500 L 140.305,41.500 A 1.50,1.50 0 0 1 141.805,43.000 L 141.805,62.500 A 1.50,1.50 0 0 1 140.305,64.000 L 138.605,64.000 A 1.50,1.50 0 0 1 137.105,62.500 L 137.105,43.000 A 1.50,1.50 0 0 1 138.605,41.500 Z M 145.170,41.500 L 146.870,41.500 A 1.50,1.50 0 0 1 148.370,43.000 L 148.370,62.500 A 1.50,1.50 0 0 1 146.870,64.000 L 145.170,64.000 A 1.50,1.50 0 0 1 143.670,62.500 L 143.670,43.000 A 1.50,1.50 0 0 1 145.170,41.500 Z M 151.735,41.500 L 153.435,41.500 A 1.50,1.50 0 0 1 154.935,43.000 L 154.935,62.500 A 1.50,1.50 0 0 1 153.435,64.000 L 151.735,64.000 A 1.50,1.50 0 0 1 150.235,62.500 L 150.235,43.000 A 1.50,1.50 0 0 1 151.735,41.500 Z M 158.300,41.500 L 160.000,41.500 A 1.50,1.50 0 0 1 161.500,43.000 L 161.500,62.500 A 1.50,1.50 0 0 1 160.000,64.000 L 158.300,64.000 A 1.50,1.50 0 0 1 156.800,62.500 L 156.800,43.000 A 1.50,1.50 0 0 1 158.300,41.500 Z M 164.865,41.500 L 166.565,41.500 A 1.50,1.50 0 0 1 168.065,43.000 L 168.065,62.500 A 1.50,1.50 0 0 1 166.565,64.000 L 164.865,64.000 A 1.50,1.50 0 0 1 163.365,62.500 L 163.365,43.000 A 1.50,1.50 0 0 1 164.865,41.500 Z M 171.430,41.500 L 173.130,41.500 A 1.50,1.50 0 0 1 174.630,43.000 L 174.630,62.500 A 1.50,1.50 0 0 1 173.130,64.000 L 171.430,64.000 A 1.50,1.50 0 0 1 169.930,62.500 L 169.930,43.000 A 1.50,1.50 0 0 1 171.430,41.500 Z M 177.995,41.500 L 179.695,41.500 A 1.50,1.50 0 0 1 181.195,43.000 L 181.195,62.500 A 1.50,1.50 0 0 1 179.695,64.000 L 177.995,64.000 A 1.50,1.50 0 0 1 176.495,62.500 L 176.495,43.000 A 1.50,1.50 0 0 1 177.995,41.500 Z M 184.560,41.500 L 186.260,41.500 A 1.50,1.50 0 0 1 187.760,43.000 L 187.760,62.500 A 1.50,1.50 0 0 1 186.260,64.000 L 184.560,64.000 A 1.50,1.50 0 0 1 183.060,62.500 L 183.060,43.000 A 1.50,1.50 0 0 1 184.560,41.500 Z M 191.125,41.500 L 192.825,41.500 A 1.50,1.50 0 0 1 194.325,43.000 L 194.325,62.500 A 1.50,1.50 0 0 1 192.825,64.000 L 191.125,64.000 A 1.50,1.50 0 0 1 189.625,62.500 L 189.625,43.000 A 1.50,1.50 0 0 1 191.125,41.500 Z M 197.690,41.500 L 199.390,41.500 A 1.50,1.50 0 0 1 200.890,43.000 L 200.890,62.500 A 1.50,1.50 0 0 1 199.390,64.000 L 197.690,64.000 A 1.50,1.50 0 0 1 196.190,62.500 L 196.190,43.000 A 1.50,1.50 0 0 1 197.690,41.500 Z M 204.255,41.500 L 205.955,41.500 A 1.50,1.50 0 0 1 207.455,43.000 L 207.455,62.500 A 1.50,1.50 0 0 1 205.955,64.000 L 204.255,64.000 A 1.50,1.50 0 0 1 202.755,62.500 L 202.755,43.000 A 1.50,1.50 0 0 1 204.255,41.500 Z M 210.820,41.500 L 212.520,41.500 A 1.50,1.50 0 0 1 214.020,43.000 L 214.020,62.500 A 1.50,1.50 0 0 1 212.520,64.000 L 210.820,64.000 A 1.50,1.50 0 0 1 209.320,62.500 L 209.320,43.000 A 1.50,1.50 0 0 1 210.820,41.500 Z M 217.385,41.500 L 219.085,41.500 A 1.50,1.50 0 0 1 220.585,43.000 L 220.585,62.500 A 1.50,1.50 0 0 1 219.085,64.000 L 217.385,64.000 A 1.50,1.50 0 0 1 215.885,62.500 L 215.885,43.000 A 1.50,1.50 0 0 1 217.385,41.500 Z M 223.950,41.500 L 225.650,41.500 A 1.50,1.50 0 0 1 227.150,43.000 L 227.150,62.500 A 1.50,1.50 0 0 1 225.650,64.000 L 223.950,64.000 A 1.50,1.50 0 0 1 222.450,62.500 L 222.450,43.000 A 1.50,1.50 0 0 1 223.950,41.500 Z M 230.515,41.500 L 232.215,41.500 A 1.50,1.50 0 0 1 233.715,43.000 L 233.715,62.500 A 1.50,1.50 0 0 1 232.215,64.000 L 230.515,64.000 A 1.50,1.50 0 0 1 229.015,62.500 L 229.015,43.000 A 1.50,1.50 0 0 1 230.515,41.500 Z M 237.080,41.500 L 238.780,41.500 A 1.50,1.50 0 0 1 240.280,43.000 L 240.280,62.500 A 1.50,1.50 0 0 1 238.780,64.000 L 237.080,64.000 A 1.50,1.50 0 0 1 235.580,62.500 L 235.580,43.000 A 1.50,1.50 0 0 1 237.080,41.500 Z M 243.645,41.500 L 245.345,41.500 A 1.50,1.50 0 0 1 246.845,43.000 L 246.845,62.500 A 1.50,1.50 0 0 1 245.345,64.000 L 243.645,64.000 A 1.50,1.50 0 0 1 242.145,62.500 L 242.145,43.000 A 1.50,1.50 0 0 1 243.645,41.500 Z M 250.210,41.500 L 251.910,41.500 A 1.50,1.50 0 0 1 253.410,43.000 L 253.410,62.500 A 1.50,1.50 0 0 1 251.910,64.000 L 250.210,64.000 A 1.50,1.50 0 0 1 248.710,62.500 L 248.710,43.000 A 1.50,1.50 0 0 1 250.210,41.500 Z M 256.775,41.500 L 258.475,41.500 A 1.50,1.50 0 0 1 259.975,43.000 L 259.975,62.500 A 1.50,1.50 0 0 1 258.475,64.000 L 256.775,64.000 A 1.50,1.50 0 0 1 255.275,62.500 L 255.275,43.000 A 1.50,1.50 0 0 1 256.775,41.500 Z M 263.340,41.500 L 265.040,41.500 A 1.50,1.50 0 0 1 266.540,43.000 L 266.540,62.500 A 1.50,1.50 0 0 1 265.040,64.000 L 263.340,64.000 A 1.50,1.50 0 0 1 261.840,62.500 L 261.840,43.000 A 1.50,1.50 0 0 1 263.340,41.500 Z M 269.905,41.500 L 271.605,41.500 A 1.50,1.50 0 0 1 273.105,43.000 L 273.105,62.500 A 1.50,1.50 0 0 1 271.605,64.000 L 269.905,64.000 A 1.50,1.50 0 0 1 268.405,62.500 L 268.405,43.000 A 1.50,1.50 0 0 1 269.905,41.500 Z M 276.470,41.500 L 278.170,41.500 A 1.50,1.50 0 0 1 279.670,43.000 L 279.670,62.500 A 1.50,1.50 0 0 1 278.170,64.000 L 276.470,64.000 A 1.50,1.50 0 0 1 274.970,62.500 L 274.970,43.000 A 1.50,1.50 0 0 1 276.470,41.500 Z M 283.035,41.500 L 284.735,41.500 A 1.50,1.50 0 0 1 286.235,43.000 L 286.235,62.500 A 1.50,1.50 0 0 1 284.735,64.000 L 283.035,64.000 A 1.50,1.50 0 0 1 281.535,62.500 L 281.535,43.000 A 1.50,1.50 0 0 1 283.035,41.500 Z M 289.600,41.500 L 291.300,41.500 A 1.50,1.50 0 0 1 292.800,43.000 L 292.800,62.500 A 1.50,1.50 0 0 1 291.300,64.000 L 289.600,64.000 A 1.50,1.50 0 0 1 288.100,62.500 L 288.100,43.000 A 1.50,1.50 0 0 1 289.600,41.500 Z M 296.165,41.500 L 297.865,41.500 A 1.50,1.50 0 0 1 299.365,43.000 L 299.365,62.500 A 1.50,1.50 0 0 1 297.865,64.000 L 296.165,64.000 A 1.50,1.50 0 0 1 294.665,62.500 L 294.665,43.000 A 1.50,1.50 0 0 1 296.165,41.500 Z M 302.730,41.500 L 304.430,41.500 A 1.50,1.50 0 0 1 305.930,43.000 L 305.930,62.500 A 1.50,1.50 0 0 1 304.430,64.000 L 302.730,64.000 A 1.50,1.50 0 0 1 301.230,62.500 L 301.230,43.000 A 1.50,1.50 0 0 1 302.730,41.500 Z M 309.295,41.500 L 310.995,41.500 A 1.50,1.50 0 0 1 312.495,43.000 L 312.495,62.500 A 1.50,1.50 0 0 1 310.995,64.000 L 309.295,64.000 A 1.50,1.50 0 0 1 307.795,62.500 L 307.795,43.000 A 1.50,1.50 0 0 1 309.295,41.500 Z M 315.860,41.500 L 317.560,41.500 A 1.50,1.50 0 0 1 319.060,43.000 L 319.060,62.500 A 1.50,1.50 0 0 1 317.560,64.000 L 315.860,64.000 A 1.50,1.50 0 0 1 314.360,62.500 L 314.360,43.000 A 1.50,1.50 0 0 1 315.860,41.500 Z M 322.425,41.500 L 324.125,41.500 A 1.50,1.50 0 0 1 325.625,43.000 L 325.625,62.500 A 1.50,1.50 0 0 1 324.125,64.000 L 322.425,64.000 A 1.50,1.50 0 0 1 320.925,62.500 L 320.925,43.000 A 1.50,1.50 0 0 1 322.425,41.500 Z M 328.990,41.500 L 330.690,41.500 A 1.50,1.50 0 0 1 332.190,43.000 L 332.190,62.500 A 1.50,1.50 0 0 1 330.690,64.000 L 328.990,64.000 A 1.50,1.50 0 0 1 327.490,62.500 L 327.490,43.000 A 1.50,1.50 0 0 1 328.990,41.500 Z">
+                                <Path.OpacityMask>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                        <GradientStop Color="#FF000000" Offset="{Binding RPMGaugeNumbers[13].XPos}"/>
+                                        <GradientStop Color="#00000000" Offset="{Binding RPMGaugeNumbers[13].XPos}"/>
+                                    </LinearGradientBrush>
+                                </Path.OpacityMask>
+                            </Path>
+                            <Grid Width="{Binding RPMGaugeNumbers[13].YPos}" HorizontalAlignment="Left">
+                              <Canvas Width="16.7" Height="80" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,0,-5.1,0" Opacity="{Binding RPMGaugeNumbers[16].YPos}">
+                                <Path Style="{StaticResource NosFillStyle}" Opacity="0.16" Data="M 7.500,36.500 L 9.200,36.500 A 6.50,6.50 0 0 1 15.700,43.000 L 15.700,62.500 A 6.50,6.50 0 0 1 9.200,69.000 L 7.500,69.000 A 6.50,6.50 0 0 1 1.000,62.500 L 1.000,43.000 A 6.50,6.50 0 0 1 7.500,36.500 Z"/>
+                                <Path Style="{StaticResource NosFillStyle}" Opacity="0.28" Data="M 7.500,38.500 L 9.200,38.500 A 4.50,4.50 0 0 1 13.700,43.000 L 13.700,62.500 A 4.50,4.50 0 0 1 9.200,67.000 L 7.500,67.000 A 4.50,4.50 0 0 1 3.000,62.500 L 3.000,43.000 A 4.50,4.50 0 0 1 7.500,38.500 Z"/>
+                                <Path Style="{StaticResource NosFillStyle}" Opacity="0.5" Data="M 7.500,40.000 L 9.200,40.000 A 3.00,3.00 0 0 1 12.200,43.000 L 12.200,62.500 A 3.00,3.00 0 0 1 9.200,65.500 L 7.500,65.500 A 3.00,3.00 0 0 1 4.500,62.500 L 4.500,43.000 A 3.00,3.00 0 0 1 7.500,40.000 Z"/>
+                              </Canvas>
+                            </Grid>
+                        </Grid>
+                    </Grid>
+                    </Grid><!-- /DigitalWrapper -->
                 </Grid>
             </DataTemplate>
 
@@ -582,558 +633,140 @@
                     <ImageSource x:Key="A_BitmapImage_STMIcon_On">/ForzaUI;component/Textures/Data_Bound/Anthem/HUD/HUD_Dial_Assist_Analogue_STM_On.png</ImageSource>
                 </DataTemplate.Resources>
                 <Grid DataContext="{Binding Path=DataContext, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}">
-<!-- Authentic Fast & Furious NOS Radial Bar Translucent Background Track (4 Segments) -->
-                    <!-- Background Segment 4 (Top: Angle 128.7) -->
-                    <local:FZMaterial Height="300"
-                                      Width="300"
-                                      RenderTransformOrigin="0.5,0.5"
-                                      Color="{StaticResource A_Color_Nitrous_Background}"
-                                      Opacity="{Binding RPMGaugeNumbers[20].YPos}">
-                        <local:FZMaterial.RenderTransform>
-                            <TransformGroup>
-                                <RotateTransform Angle="123.700"/>
-                                <ScaleTransform ScaleX="1.732"
-                                                ScaleY="1.732"/>
-<TranslateTransform Y="14"/>
-                            </TransformGroup>
-                        </local:FZMaterial.RenderTransform>
-                        <local:FZMaterial.Preset>
-                            <local:FZMaterialPresetRadialBar TargetRatio="1.0"
-                                                             ShadowIntensity="0"
-                                                             TipGlowFade="0.0"
-                                                             AngleAmount="0.945"
-                                                             BarWidth="0.051"
-                                                             BackgroundColor="#00000000"
-                                                             Ratio="1.0"/>
-                        </local:FZMaterial.Preset>
-                    </local:FZMaterial>
-
-                    <!-- Background Segment 3 (Angle 107.8) -->
-                    <local:FZMaterial Height="300"
-                                      Width="300"
-                                      RenderTransformOrigin="0.5,0.5"
-                                      Color="{StaticResource A_Color_Nitrous_Background}"
-                                      Opacity="{Binding RPMGaugeNumbers[20].YPos}">
-                        <local:FZMaterial.RenderTransform>
-                            <TransformGroup>
-                                <RotateTransform Angle="102.800"/>
-                                <ScaleTransform ScaleX="1.732"
-                                                ScaleY="1.732"/>
-<TranslateTransform Y="14"/>
-                            </TransformGroup>
-                        </local:FZMaterial.RenderTransform>
-                        <local:FZMaterial.Preset>
-                            <local:FZMaterialPresetRadialBar TargetRatio="1.0"
-                                                             ShadowIntensity="0"
-                                                             TipGlowFade="0.0"
-                                                             AngleAmount="0.945"
-                                                             BarWidth="0.051"
-                                                             BackgroundColor="#00000000"
-                                                             Ratio="1.0"/>
-                        </local:FZMaterial.Preset>
-                    </local:FZMaterial>
-
-                    <!-- Background Segment 2 (Angle 86.9) -->
-                    <local:FZMaterial Height="300"
-                                      Width="300"
-                                      RenderTransformOrigin="0.5,0.5"
-                                      Color="{StaticResource A_Color_Nitrous_Background}"
-                                      Opacity="{Binding RPMGaugeNumbers[20].YPos}">
-                        <local:FZMaterial.RenderTransform>
-                            <TransformGroup>
-                                <RotateTransform Angle="81.900"/>
-                                <ScaleTransform ScaleX="1.732"
-                                                ScaleY="1.732"/>
-<TranslateTransform Y="14"/>
-                            </TransformGroup>
-                        </local:FZMaterial.RenderTransform>
-                        <local:FZMaterial.Preset>
-                            <local:FZMaterialPresetRadialBar TargetRatio="1.0"
-                                                             ShadowIntensity="0"
-                                                             TipGlowFade="0.0"
-                                                             AngleAmount="0.945"
-                                                             BarWidth="0.051"
-                                                             BackgroundColor="#00000000"
-                                                             Ratio="1.0"/>
-                        </local:FZMaterial.Preset>
-                    </local:FZMaterial>
-
-                    <!-- Background Segment 1 (Bottom: Angle 66.0) -->
-                    <local:FZMaterial Height="300"
-                                      Width="300"
-                                      RenderTransformOrigin="0.5,0.5"
-                                      Color="{StaticResource A_Color_Nitrous_Background}"
-                                      Opacity="{Binding RPMGaugeNumbers[20].YPos}">
-                        <local:FZMaterial.RenderTransform>
-                            <TransformGroup>
-                                <RotateTransform Angle="61.000"/>
-                                <ScaleTransform ScaleX="1.732"
-                                                ScaleY="1.732"/>
-<TranslateTransform Y="14"/>
-                            </TransformGroup>
-                        </local:FZMaterial.RenderTransform>
-                        <local:FZMaterial.Preset>
-                            <local:FZMaterialPresetRadialBar TargetRatio="1.0"
-                                                             ShadowIntensity="0"
-                                                             TipGlowFade="0.0"
-                                                             AngleAmount="0.945"
-                                                             BarWidth="0.051"
-                                                             BackgroundColor="#00000000"
-                                                             Ratio="1.0"/>
-                        </local:FZMaterial.Preset>
-                    </local:FZMaterial>
-
-                    <!-- Authentic Fast & Furious NOS Radial Bar Active Cyan Fill (4 Sequential Segments) -->
-                    <!-- Segment 4 (Top: Angle 128.7, drains first via RPMGaugeNumbers[20]) -->
-                    <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[20]}"
-                                      Height="300"
-                                      Width="300"
-                                      RenderTransformOrigin="0.5,0.5"
-                                      Color="{StaticResource A_Color_Nitrous_Fill}">
-                        <local:FZMaterial.RenderTransform>
-                            <TransformGroup>
-                                <RotateTransform Angle="123.700"/>
-                                <ScaleTransform ScaleX="1.732"
-                                                ScaleY="1.732"/>
-<TranslateTransform Y="14"/>
-                            </TransformGroup>
-                        </local:FZMaterial.RenderTransform>
-                        <local:FZMaterial.Preset>
-                            <local:FZMaterialPresetRadialBar TargetRatio="1.0"
-                                                             ShadowIntensity="0"
-                                                             TipGlowFade="0.0"
-                                                             AngleAmount="0.945"
-                                                             BarWidth="0.051"
-                                                             BackgroundColor="#00000000"
-                                                             Ratio="{Binding XPos}"/>
-                        </local:FZMaterial.Preset>
-                    </local:FZMaterial>
-
-                    <!-- Segment 3 (Angle 107.8, drains second via RPMGaugeNumbers[19]) -->
-                    <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[19]}"
-                                      Height="300"
-                                      Width="300"
-                                      RenderTransformOrigin="0.5,0.5"
-                                      Color="{StaticResource A_Color_Nitrous_Fill}">
-                        <local:FZMaterial.RenderTransform>
-                            <TransformGroup>
-                                <RotateTransform Angle="102.800"/>
-                                <ScaleTransform ScaleX="1.732"
-                                                ScaleY="1.732"/>
-<TranslateTransform Y="14"/>
-                            </TransformGroup>
-                        </local:FZMaterial.RenderTransform>
-                        <local:FZMaterial.Preset>
-                            <local:FZMaterialPresetRadialBar TargetRatio="1.0"
-                                                             ShadowIntensity="0"
-                                                             TipGlowFade="0.0"
-                                                             AngleAmount="0.945"
-                                                             BarWidth="0.051"
-                                                             BackgroundColor="#00000000"
-                                                             Ratio="{Binding XPos}"/>
-                        </local:FZMaterial.Preset>
-                    </local:FZMaterial>
-
-                    <!-- Segment 2 (Angle 86.9, drains third via RPMGaugeNumbers[18]) -->
-                    <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[18]}"
-                                      Height="300"
-                                      Width="300"
-                                      RenderTransformOrigin="0.5,0.5"
-                                      Color="{StaticResource A_Color_Nitrous_Fill}">
-                        <local:FZMaterial.RenderTransform>
-                            <TransformGroup>
-                                <RotateTransform Angle="81.900"/>
-                                <ScaleTransform ScaleX="1.732"
-                                                ScaleY="1.732"/>
-<TranslateTransform Y="14"/>
-                            </TransformGroup>
-                        </local:FZMaterial.RenderTransform>
-                        <local:FZMaterial.Preset>
-                            <local:FZMaterialPresetRadialBar TargetRatio="1.0"
-                                                             ShadowIntensity="0"
-                                                             TipGlowFade="0.0"
-                                                             AngleAmount="0.945"
-                                                             BarWidth="0.051"
-                                                             BackgroundColor="#00000000"
-                                                             Ratio="{Binding XPos}"/>
-                        </local:FZMaterial.Preset>
-                    </local:FZMaterial>
-
-                    <!-- Segment 1 (Bottom: Angle 66.0, drains last via RPMGaugeNumbers[17]) -->
-                    <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[17]}"
-                                      Height="300"
-                                      Width="300"
-                                      RenderTransformOrigin="0.5,0.5"
-                                      Color="{StaticResource A_Color_Nitrous_Fill}">
-                        <local:FZMaterial.RenderTransform>
-                            <TransformGroup>
-                                <RotateTransform Angle="61.000"/>
-                                <ScaleTransform ScaleX="1.732"
-                                                ScaleY="1.732"/>
-<TranslateTransform Y="14"/>
-                            </TransformGroup>
-                        </local:FZMaterial.RenderTransform>
-                        <local:FZMaterial.Preset>
-                            <local:FZMaterialPresetRadialBar TargetRatio="1.0"
-                                                             ShadowIntensity="0"
-                                                             TipGlowFade="0.0"
-                                                             AngleAmount="0.945"
-                                                             BarWidth="0.051"
-                                                             BackgroundColor="#00000000"
-                                                             Ratio="{Binding XPos}"/>
-                        </local:FZMaterial.Preset>
-                    </local:FZMaterial>
-
-                    <!-- Authentic Fast & Furious NOS Active Glowing Tip -->
-                    <!-- Stacked translucent arcs, each ending on the fill's leading edge and narrower than the last.
-                         Their opacity adds up toward the tip, giving a smooth blue-to-white fade. Widest = kGlowTrail in nitro_mod.cpp. -->
-                    <!-- Fade pass 1: 12.0 deg -->
-                    <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[16]}"
-                                      Height="300"
-                                      Width="300"
-                                      RenderTransformOrigin="0.5,0.5"
-                                      Color="#22EAF8FF">
-                        <local:FZMaterial.RenderTransform>
-                            <TransformGroup>
-                                <RotateTransform Angle="{Binding YPos}"/>
-                                <RotateTransform Angle="-6.000"/>
-                                <ScaleTransform ScaleX="1.732"
-                                                ScaleY="1.732"/>
-<TranslateTransform Y="14"/>
-                            </TransformGroup>
-                        </local:FZMaterial.RenderTransform>
-                        <local:FZMaterial.Preset>
-                            <local:FZMaterialPresetRadialBar TargetRatio="1.0"
-                                                             ShadowIntensity="0"
-                                                             TipGlowFade="0.0"
-                                                             AngleAmount="0.9587"
-                                                             BarWidth="0.051"
-                                                             BackgroundColor="#00000000"
-                                                             Ratio="{Binding XPos}"/>
-                        </local:FZMaterial.Preset>
-                    </local:FZMaterial>
-
-                    <!-- Fade pass 2: 11.0 deg -->
-                    <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[16]}"
-                                      Height="300"
-                                      Width="300"
-                                      RenderTransformOrigin="0.5,0.5"
-                                      Color="#22EAF8FF">
-                        <local:FZMaterial.RenderTransform>
-                            <TransformGroup>
-                                <RotateTransform Angle="{Binding YPos}"/>
-                                <RotateTransform Angle="-5.500"/>
-                                <ScaleTransform ScaleX="1.732"
-                                                ScaleY="1.732"/>
-<TranslateTransform Y="14"/>
-                            </TransformGroup>
-                        </local:FZMaterial.RenderTransform>
-                        <local:FZMaterial.Preset>
-                            <local:FZMaterialPresetRadialBar TargetRatio="1.0"
-                                                             ShadowIntensity="0"
-                                                             TipGlowFade="0.0"
-                                                             AngleAmount="0.9614"
-                                                             BarWidth="0.051"
-                                                             BackgroundColor="#00000000"
-                                                             Ratio="{Binding XPos}"/>
-                        </local:FZMaterial.Preset>
-                    </local:FZMaterial>
-
-                    <!-- Fade pass 3: 10.0 deg -->
-                    <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[16]}"
-                                      Height="300"
-                                      Width="300"
-                                      RenderTransformOrigin="0.5,0.5"
-                                      Color="#22EAF8FF">
-                        <local:FZMaterial.RenderTransform>
-                            <TransformGroup>
-                                <RotateTransform Angle="{Binding YPos}"/>
-                                <RotateTransform Angle="-5.000"/>
-                                <ScaleTransform ScaleX="1.732"
-                                                ScaleY="1.732"/>
-<TranslateTransform Y="14"/>
-                            </TransformGroup>
-                        </local:FZMaterial.RenderTransform>
-                        <local:FZMaterial.Preset>
-                            <local:FZMaterialPresetRadialBar TargetRatio="1.0"
-                                                             ShadowIntensity="0"
-                                                             TipGlowFade="0.0"
-                                                             AngleAmount="0.9641"
-                                                             BarWidth="0.051"
-                                                             BackgroundColor="#00000000"
-                                                             Ratio="{Binding XPos}"/>
-                        </local:FZMaterial.Preset>
-                    </local:FZMaterial>
-
-                    <!-- Fade pass 4: 9.0 deg -->
-                    <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[16]}"
-                                      Height="300"
-                                      Width="300"
-                                      RenderTransformOrigin="0.5,0.5"
-                                      Color="#22EAF8FF">
-                        <local:FZMaterial.RenderTransform>
-                            <TransformGroup>
-                                <RotateTransform Angle="{Binding YPos}"/>
-                                <RotateTransform Angle="-4.500"/>
-                                <ScaleTransform ScaleX="1.732"
-                                                ScaleY="1.732"/>
-<TranslateTransform Y="14"/>
-                            </TransformGroup>
-                        </local:FZMaterial.RenderTransform>
-                        <local:FZMaterial.Preset>
-                            <local:FZMaterialPresetRadialBar TargetRatio="1.0"
-                                                             ShadowIntensity="0"
-                                                             TipGlowFade="0.0"
-                                                             AngleAmount="0.9669"
-                                                             BarWidth="0.051"
-                                                             BackgroundColor="#00000000"
-                                                             Ratio="{Binding XPos}"/>
-                        </local:FZMaterial.Preset>
-                    </local:FZMaterial>
-
-                    <!-- Fade pass 5: 8.0 deg -->
-                    <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[16]}"
-                                      Height="300"
-                                      Width="300"
-                                      RenderTransformOrigin="0.5,0.5"
-                                      Color="#22EAF8FF">
-                        <local:FZMaterial.RenderTransform>
-                            <TransformGroup>
-                                <RotateTransform Angle="{Binding YPos}"/>
-                                <RotateTransform Angle="-4.000"/>
-                                <ScaleTransform ScaleX="1.732"
-                                                ScaleY="1.732"/>
-<TranslateTransform Y="14"/>
-                            </TransformGroup>
-                        </local:FZMaterial.RenderTransform>
-                        <local:FZMaterial.Preset>
-                            <local:FZMaterialPresetRadialBar TargetRatio="1.0"
-                                                             ShadowIntensity="0"
-                                                             TipGlowFade="0.0"
-                                                             AngleAmount="0.9696"
-                                                             BarWidth="0.051"
-                                                             BackgroundColor="#00000000"
-                                                             Ratio="{Binding XPos}"/>
-                        </local:FZMaterial.Preset>
-                    </local:FZMaterial>
-
-                    <!-- Fade pass 6: 7.0 deg -->
-                    <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[16]}"
-                                      Height="300"
-                                      Width="300"
-                                      RenderTransformOrigin="0.5,0.5"
-                                      Color="#22EAF8FF">
-                        <local:FZMaterial.RenderTransform>
-                            <TransformGroup>
-                                <RotateTransform Angle="{Binding YPos}"/>
-                                <RotateTransform Angle="-3.500"/>
-                                <ScaleTransform ScaleX="1.732"
-                                                ScaleY="1.732"/>
-<TranslateTransform Y="14"/>
-                            </TransformGroup>
-                        </local:FZMaterial.RenderTransform>
-                        <local:FZMaterial.Preset>
-                            <local:FZMaterialPresetRadialBar TargetRatio="1.0"
-                                                             ShadowIntensity="0"
-                                                             TipGlowFade="0.0"
-                                                             AngleAmount="0.9724"
-                                                             BarWidth="0.051"
-                                                             BackgroundColor="#00000000"
-                                                             Ratio="{Binding XPos}"/>
-                        </local:FZMaterial.Preset>
-                    </local:FZMaterial>
-
-                    <!-- Fade pass 7: 6.0 deg -->
-                    <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[16]}"
-                                      Height="300"
-                                      Width="300"
-                                      RenderTransformOrigin="0.5,0.5"
-                                      Color="#22EAF8FF">
-                        <local:FZMaterial.RenderTransform>
-                            <TransformGroup>
-                                <RotateTransform Angle="{Binding YPos}"/>
-                                <RotateTransform Angle="-3.000"/>
-                                <ScaleTransform ScaleX="1.732"
-                                                ScaleY="1.732"/>
-<TranslateTransform Y="14"/>
-                            </TransformGroup>
-                        </local:FZMaterial.RenderTransform>
-                        <local:FZMaterial.Preset>
-                            <local:FZMaterialPresetRadialBar TargetRatio="1.0"
-                                                             ShadowIntensity="0"
-                                                             TipGlowFade="0.0"
-                                                             AngleAmount="0.9751"
-                                                             BarWidth="0.051"
-                                                             BackgroundColor="#00000000"
-                                                             Ratio="{Binding XPos}"/>
-                        </local:FZMaterial.Preset>
-                    </local:FZMaterial>
-
-                    <!-- Fade pass 8: 5.0 deg -->
-                    <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[16]}"
-                                      Height="300"
-                                      Width="300"
-                                      RenderTransformOrigin="0.5,0.5"
-                                      Color="#22EAF8FF">
-                        <local:FZMaterial.RenderTransform>
-                            <TransformGroup>
-                                <RotateTransform Angle="{Binding YPos}"/>
-                                <RotateTransform Angle="-2.500"/>
-                                <ScaleTransform ScaleX="1.732"
-                                                ScaleY="1.732"/>
-<TranslateTransform Y="14"/>
-                            </TransformGroup>
-                        </local:FZMaterial.RenderTransform>
-                        <local:FZMaterial.Preset>
-                            <local:FZMaterialPresetRadialBar TargetRatio="1.0"
-                                                             ShadowIntensity="0"
-                                                             TipGlowFade="0.0"
-                                                             AngleAmount="0.9779"
-                                                             BarWidth="0.051"
-                                                             BackgroundColor="#00000000"
-                                                             Ratio="{Binding XPos}"/>
-                        </local:FZMaterial.Preset>
-                    </local:FZMaterial>
-
-                    <!-- Fade pass 9: 4.0 deg -->
-                    <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[16]}"
-                                      Height="300"
-                                      Width="300"
-                                      RenderTransformOrigin="0.5,0.5"
-                                      Color="#22EAF8FF">
-                        <local:FZMaterial.RenderTransform>
-                            <TransformGroup>
-                                <RotateTransform Angle="{Binding YPos}"/>
-                                <RotateTransform Angle="-2.000"/>
-                                <ScaleTransform ScaleX="1.732"
-                                                ScaleY="1.732"/>
-<TranslateTransform Y="14"/>
-                            </TransformGroup>
-                        </local:FZMaterial.RenderTransform>
-                        <local:FZMaterial.Preset>
-                            <local:FZMaterialPresetRadialBar TargetRatio="1.0"
-                                                             ShadowIntensity="0"
-                                                             TipGlowFade="0.0"
-                                                             AngleAmount="0.9806"
-                                                             BarWidth="0.051"
-                                                             BackgroundColor="#00000000"
-                                                             Ratio="{Binding XPos}"/>
-                        </local:FZMaterial.Preset>
-                    </local:FZMaterial>
-
-                    <!-- Fade pass 10: 3.0 deg -->
-                    <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[16]}"
-                                      Height="300"
-                                      Width="300"
-                                      RenderTransformOrigin="0.5,0.5"
-                                      Color="#22EAF8FF">
-                        <local:FZMaterial.RenderTransform>
-                            <TransformGroup>
-                                <RotateTransform Angle="{Binding YPos}"/>
-                                <RotateTransform Angle="-1.500"/>
-                                <ScaleTransform ScaleX="1.732"
-                                                ScaleY="1.732"/>
-<TranslateTransform Y="14"/>
-                            </TransformGroup>
-                        </local:FZMaterial.RenderTransform>
-                        <local:FZMaterial.Preset>
-                            <local:FZMaterialPresetRadialBar TargetRatio="1.0"
-                                                             ShadowIntensity="0"
-                                                             TipGlowFade="0.0"
-                                                             AngleAmount="0.9834"
-                                                             BarWidth="0.051"
-                                                             BackgroundColor="#00000000"
-                                                             Ratio="{Binding XPos}"/>
-                        </local:FZMaterial.Preset>
-                    </local:FZMaterial>
-
-                    <!-- Fade pass 11: 2.0 deg -->
-                    <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[16]}"
-                                      Height="300"
-                                      Width="300"
-                                      RenderTransformOrigin="0.5,0.5"
-                                      Color="#22EAF8FF">
-                        <local:FZMaterial.RenderTransform>
-                            <TransformGroup>
-                                <RotateTransform Angle="{Binding YPos}"/>
-                                <RotateTransform Angle="-1.000"/>
-                                <ScaleTransform ScaleX="1.732"
-                                                ScaleY="1.732"/>
-<TranslateTransform Y="14"/>
-                            </TransformGroup>
-                        </local:FZMaterial.RenderTransform>
-                        <local:FZMaterial.Preset>
-                            <local:FZMaterialPresetRadialBar TargetRatio="1.0"
-                                                             ShadowIntensity="0"
-                                                             TipGlowFade="0.0"
-                                                             AngleAmount="0.9861"
-                                                             BarWidth="0.051"
-                                                             BackgroundColor="#00000000"
-                                                             Ratio="{Binding XPos}"/>
-                        </local:FZMaterial.Preset>
-                    </local:FZMaterial>
-
-                    <!-- Fade pass 12: 1.0 deg -->
-                    <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[16]}"
-                                      Height="300"
-                                      Width="300"
-                                      RenderTransformOrigin="0.5,0.5"
-                                      Color="#22EAF8FF">
-                        <local:FZMaterial.RenderTransform>
-                            <TransformGroup>
-                                <RotateTransform Angle="{Binding YPos}"/>
-                                <RotateTransform Angle="-0.500"/>
-                                <ScaleTransform ScaleX="1.732"
-                                                ScaleY="1.732"/>
-<TranslateTransform Y="14"/>
-                            </TransformGroup>
-                        </local:FZMaterial.RenderTransform>
-                        <local:FZMaterial.Preset>
-                            <local:FZMaterialPresetRadialBar TargetRatio="1.0"
-                                                             ShadowIntensity="0"
-                                                             TipGlowFade="0.0"
-                                                             AngleAmount="0.9888"
-                                                             BarWidth="0.051"
-                                                             BackgroundColor="#00000000"
-                                                             Ratio="{Binding XPos}"/>
-                        </local:FZMaterial.Preset>
-                    </local:FZMaterial>
-
-                    <!-- Bright tip speck -->
-                    <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[16]}"
-                                      Height="300"
-                                      Width="300"
-                                      RenderTransformOrigin="0.5,0.5"
-                                      Color="#FFFFFFFF">
-                        <local:FZMaterial.RenderTransform>
-                            <TransformGroup>
-                                <RotateTransform Angle="{Binding YPos}"/>
-                                <RotateTransform Angle="-0.700"/>
-                                <ScaleTransform ScaleX="1.732"
-                                                ScaleY="1.732"/>
-<TranslateTransform Y="14"/>
-                            </TransformGroup>
-                        </local:FZMaterial.RenderTransform>
-                        <local:FZMaterial.Preset>
-                            <local:FZMaterialPresetRadialBar TargetRatio="1.0"
-                                                             ShadowIntensity="0"
-                                                             TipGlowFade="0.0"
-                                                             AngleAmount="0.9877"
-                                                             BarWidth="0.058"
-                                                             BackgroundColor="#00000000"
-                                                             Ratio="{Binding XPos}"/>
-                        </local:FZMaterial.Preset>
-                    </local:FZMaterial>
-
-                    <local:FZMaterial Height="256" Width="128" ImageSource="/ForzaUI;component/Textures/Data_Bound/SpireHUD/HUD_Nos_Outline_Radial_Bar.png"
-                                      Opacity="{Binding RPMGaugeNumbers[20].YPos}" RenderTransformOrigin="0.5,0.5" IsHitTestVisible="False">
-                        <local:FZMaterial.RenderTransform>
-                            <TransformGroup>
-                                <ScaleTransform ScaleX="1.04" ScaleY="1.04"/>
-                                <TranslateTransform X="-113.4" Y="0"/>
-                            </TransformGroup>
-                        </local:FZMaterial.RenderTransform>
-                    </local:FZMaterial>
+<!-- NOS arch (new design), drawn as vector paths: ring r 36.8..64.5 around the dial centre, 5 segments with straight 3.0 px gaps,
+                         the two ends cut like the design (the right one horizontal). Burning fades the segments out (opacity), one after the other:
+                         5 (right end) first, then 4, 3, 2, 1. The darker cyan band is the 5.0 px border on the outer edge. -->
+                    <Canvas Width="312" Height="312" IsHitTestVisible="False">
+                        <!-- Shadow 1 -->
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[17]}" Opacity="{Binding XPos}" Data="M 124.75,225.06 A 64.5,64.5 0 0 1 94.33,184.45 L 121.40,178.52 A 36.8,36.8 0 0 0 139.95,201.81 Z">
+                            <Path.Fill><SolidColorBrush Color="#12000000"/></Path.Fill>
+                            <Path.RenderTransform><TranslateTransform Y="4.5"/></Path.RenderTransform>
+                        </Path>
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[17]}" Opacity="{Binding XPos}" Data="M 124.75,225.06 A 64.5,64.5 0 0 1 94.33,184.45 L 121.40,178.52 A 36.8,36.8 0 0 0 139.95,201.81 Z">
+                            <Path.Fill><SolidColorBrush Color="#18000000"/></Path.Fill>
+                            <Path.RenderTransform><TranslateTransform Y="3.0"/></Path.RenderTransform>
+                        </Path>
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[17]}" Opacity="{Binding XPos}" Data="M 124.75,225.06 A 64.5,64.5 0 0 1 94.33,184.45 L 121.40,178.52 A 36.8,36.8 0 0 0 139.95,201.81 Z">
+                            <Path.Fill><SolidColorBrush Color="#20000000"/></Path.Fill>
+                            <Path.RenderTransform><TranslateTransform Y="1.5"/></Path.RenderTransform>
+                        </Path>
+                        <!-- Shadow 2 -->
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[18]}" Opacity="{Binding XPos}" Data="M 93.69,181.52 A 64.5,64.5 0 0 1 104.29,132.03 L 126.56,148.52 A 36.8,36.8 0 0 0 120.76,175.59 Z">
+                            <Path.Fill><SolidColorBrush Color="#12000000"/></Path.Fill>
+                            <Path.RenderTransform><TranslateTransform Y="4.5"/></Path.RenderTransform>
+                        </Path>
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[18]}" Opacity="{Binding XPos}" Data="M 93.69,181.52 A 64.5,64.5 0 0 1 104.29,132.03 L 126.56,148.52 A 36.8,36.8 0 0 0 120.76,175.59 Z">
+                            <Path.Fill><SolidColorBrush Color="#18000000"/></Path.Fill>
+                            <Path.RenderTransform><TranslateTransform Y="3.0"/></Path.RenderTransform>
+                        </Path>
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[18]}" Opacity="{Binding XPos}" Data="M 93.69,181.52 A 64.5,64.5 0 0 1 104.29,132.03 L 126.56,148.52 A 36.8,36.8 0 0 0 120.76,175.59 Z">
+                            <Path.Fill><SolidColorBrush Color="#20000000"/></Path.Fill>
+                            <Path.RenderTransform><TranslateTransform Y="1.5"/></Path.RenderTransform>
+                        </Path>
+                        <!-- Shadow 3 -->
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[19]}" Opacity="{Binding XPos}" Data="M 106.07,129.62 A 64.5,64.5 0 0 1 150.31,105.05 L 152.54,132.67 A 36.8,36.8 0 0 0 128.34,146.11 Z">
+                            <Path.Fill><SolidColorBrush Color="#12000000"/></Path.Fill>
+                            <Path.RenderTransform><TranslateTransform Y="4.5"/></Path.RenderTransform>
+                        </Path>
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[19]}" Opacity="{Binding XPos}" Data="M 106.07,129.62 A 64.5,64.5 0 0 1 150.31,105.05 L 152.54,132.67 A 36.8,36.8 0 0 0 128.34,146.11 Z">
+                            <Path.Fill><SolidColorBrush Color="#18000000"/></Path.Fill>
+                            <Path.RenderTransform><TranslateTransform Y="3.0"/></Path.RenderTransform>
+                        </Path>
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[19]}" Opacity="{Binding XPos}" Data="M 106.07,129.62 A 64.5,64.5 0 0 1 150.31,105.05 L 152.54,132.67 A 36.8,36.8 0 0 0 128.34,146.11 Z">
+                            <Path.Fill><SolidColorBrush Color="#20000000"/></Path.Fill>
+                            <Path.RenderTransform><TranslateTransform Y="1.5"/></Path.RenderTransform>
+                        </Path>
+                        <!-- Shadow 4 -->
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[20]}" Opacity="{Binding XPos}" Data="M 153.30,104.81 A 64.5,64.5 0 0 1 200.91,121.96 L 181.58,141.81 A 36.8,36.8 0 0 0 155.53,132.43 Z">
+                            <Path.Fill><SolidColorBrush Color="#12000000"/></Path.Fill>
+                            <Path.RenderTransform><TranslateTransform Y="4.5"/></Path.RenderTransform>
+                        </Path>
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[20]}" Opacity="{Binding XPos}" Data="M 153.30,104.81 A 64.5,64.5 0 0 1 200.91,121.96 L 181.58,141.81 A 36.8,36.8 0 0 0 155.53,132.43 Z">
+                            <Path.Fill><SolidColorBrush Color="#18000000"/></Path.Fill>
+                            <Path.RenderTransform><TranslateTransform Y="3.0"/></Path.RenderTransform>
+                        </Path>
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[20]}" Opacity="{Binding XPos}" Data="M 153.30,104.81 A 64.5,64.5 0 0 1 200.91,121.96 L 181.58,141.81 A 36.8,36.8 0 0 0 155.53,132.43 Z">
+                            <Path.Fill><SolidColorBrush Color="#20000000"/></Path.Fill>
+                            <Path.RenderTransform><TranslateTransform Y="1.5"/></Path.RenderTransform>
+                        </Path>
+                        <!-- Shadow 5 -->
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[16]}" Opacity="{Binding XPos}" Data="M 203.06,124.05 A 64.5,64.5 0 0 1 221.46,171.60 L 193.72,171.60 A 36.8,36.8 0 0 0 183.73,143.90 Z">
+                            <Path.Fill><SolidColorBrush Color="#12000000"/></Path.Fill>
+                            <Path.RenderTransform><TranslateTransform Y="4.5"/></Path.RenderTransform>
+                        </Path>
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[16]}" Opacity="{Binding XPos}" Data="M 203.06,124.05 A 64.5,64.5 0 0 1 221.46,171.60 L 193.72,171.60 A 36.8,36.8 0 0 0 183.73,143.90 Z">
+                            <Path.Fill><SolidColorBrush Color="#18000000"/></Path.Fill>
+                            <Path.RenderTransform><TranslateTransform Y="3.0"/></Path.RenderTransform>
+                        </Path>
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[16]}" Opacity="{Binding XPos}" Data="M 203.06,124.05 A 64.5,64.5 0 0 1 221.46,171.60 L 193.72,171.60 A 36.8,36.8 0 0 0 183.73,143.90 Z">
+                            <Path.Fill><SolidColorBrush Color="#20000000"/></Path.Fill>
+                            <Path.RenderTransform><TranslateTransform Y="1.5"/></Path.RenderTransform>
+                        </Path>
+                        <!-- Background segment 1 -->
+                        <Path IsHitTestVisible="False" Opacity="{Binding RPMGaugeNumbers[20].YPos}" Data="M 124.75,225.06 A 64.5,64.5 0 0 1 94.33,184.45 L 121.40,178.52 A 36.8,36.8 0 0 0 139.95,201.81 Z">
+                            <Path.Fill><SolidColorBrush Color="{StaticResource A_Color_Nitrous_Background}"/></Path.Fill>
+                        </Path>
+                        <!-- Background segment 2 -->
+                        <Path IsHitTestVisible="False" Opacity="{Binding RPMGaugeNumbers[20].YPos}" Data="M 93.69,181.52 A 64.5,64.5 0 0 1 104.29,132.03 L 126.56,148.52 A 36.8,36.8 0 0 0 120.76,175.59 Z">
+                            <Path.Fill><SolidColorBrush Color="{StaticResource A_Color_Nitrous_Background}"/></Path.Fill>
+                        </Path>
+                        <!-- Background segment 3 -->
+                        <Path IsHitTestVisible="False" Opacity="{Binding RPMGaugeNumbers[20].YPos}" Data="M 106.07,129.62 A 64.5,64.5 0 0 1 150.31,105.05 L 152.54,132.67 A 36.8,36.8 0 0 0 128.34,146.11 Z">
+                            <Path.Fill><SolidColorBrush Color="{StaticResource A_Color_Nitrous_Background}"/></Path.Fill>
+                        </Path>
+                        <!-- Background segment 4 -->
+                        <Path IsHitTestVisible="False" Opacity="{Binding RPMGaugeNumbers[20].YPos}" Data="M 153.30,104.81 A 64.5,64.5 0 0 1 200.91,121.96 L 181.58,141.81 A 36.8,36.8 0 0 0 155.53,132.43 Z">
+                            <Path.Fill><SolidColorBrush Color="{StaticResource A_Color_Nitrous_Background}"/></Path.Fill>
+                        </Path>
+                        <!-- Background segment 5 -->
+                        <Path IsHitTestVisible="False" Opacity="{Binding RPMGaugeNumbers[20].YPos}" Data="M 203.06,124.05 A 64.5,64.5 0 0 1 221.46,171.60 L 193.72,171.60 A 36.8,36.8 0 0 0 183.73,143.90 Z">
+                            <Path.Fill><SolidColorBrush Color="{StaticResource A_Color_Nitrous_Background}"/></Path.Fill>
+                        </Path>
+                        <!-- Glow of the leading segment while the nitro burns: strokes around its shape, visible only when the next segment is empty; the group opacity is the pulse (item 16 Y) -->
+                        <Canvas Opacity="{Binding RPMGaugeNumbers[16].YPos}" IsHitTestVisible="False">
+                            <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[17]}" Opacity="{Binding XPos}" Style="{StaticResource NosGlowStyle1}" StrokeThickness="11" Data="M 124.75,225.06 A 64.5,64.5 0 0 1 94.33,184.45 L 121.40,178.52 A 36.8,36.8 0 0 0 139.95,201.81 Z"/>
+                            <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[17]}" Opacity="{Binding XPos}" Style="{StaticResource NosGlowStyle1}" StrokeThickness="7" Data="M 124.75,225.06 A 64.5,64.5 0 0 1 94.33,184.45 L 121.40,178.52 A 36.8,36.8 0 0 0 139.95,201.81 Z"/>
+                            <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[17]}" Opacity="{Binding XPos}" Style="{StaticResource NosGlowStyle1}" StrokeThickness="3.5" Data="M 124.75,225.06 A 64.5,64.5 0 0 1 94.33,184.45 L 121.40,178.52 A 36.8,36.8 0 0 0 139.95,201.81 Z"/>
+                            <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[18]}" Opacity="{Binding XPos}" Style="{StaticResource NosGlowStyle2}" StrokeThickness="11" Data="M 93.69,181.52 A 64.5,64.5 0 0 1 104.29,132.03 L 126.56,148.52 A 36.8,36.8 0 0 0 120.76,175.59 Z"/>
+                            <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[18]}" Opacity="{Binding XPos}" Style="{StaticResource NosGlowStyle2}" StrokeThickness="7" Data="M 93.69,181.52 A 64.5,64.5 0 0 1 104.29,132.03 L 126.56,148.52 A 36.8,36.8 0 0 0 120.76,175.59 Z"/>
+                            <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[18]}" Opacity="{Binding XPos}" Style="{StaticResource NosGlowStyle2}" StrokeThickness="3.5" Data="M 93.69,181.52 A 64.5,64.5 0 0 1 104.29,132.03 L 126.56,148.52 A 36.8,36.8 0 0 0 120.76,175.59 Z"/>
+                            <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[19]}" Opacity="{Binding XPos}" Style="{StaticResource NosGlowStyle3}" StrokeThickness="11" Data="M 106.07,129.62 A 64.5,64.5 0 0 1 150.31,105.05 L 152.54,132.67 A 36.8,36.8 0 0 0 128.34,146.11 Z"/>
+                            <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[19]}" Opacity="{Binding XPos}" Style="{StaticResource NosGlowStyle3}" StrokeThickness="7" Data="M 106.07,129.62 A 64.5,64.5 0 0 1 150.31,105.05 L 152.54,132.67 A 36.8,36.8 0 0 0 128.34,146.11 Z"/>
+                            <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[19]}" Opacity="{Binding XPos}" Style="{StaticResource NosGlowStyle3}" StrokeThickness="3.5" Data="M 106.07,129.62 A 64.5,64.5 0 0 1 150.31,105.05 L 152.54,132.67 A 36.8,36.8 0 0 0 128.34,146.11 Z"/>
+                            <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[20]}" Opacity="{Binding XPos}" Style="{StaticResource NosGlowStyle4}" StrokeThickness="11" Data="M 153.30,104.81 A 64.5,64.5 0 0 1 200.91,121.96 L 181.58,141.81 A 36.8,36.8 0 0 0 155.53,132.43 Z"/>
+                            <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[20]}" Opacity="{Binding XPos}" Style="{StaticResource NosGlowStyle4}" StrokeThickness="7" Data="M 153.30,104.81 A 64.5,64.5 0 0 1 200.91,121.96 L 181.58,141.81 A 36.8,36.8 0 0 0 155.53,132.43 Z"/>
+                            <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[20]}" Opacity="{Binding XPos}" Style="{StaticResource NosGlowStyle4}" StrokeThickness="3.5" Data="M 153.30,104.81 A 64.5,64.5 0 0 1 200.91,121.96 L 181.58,141.81 A 36.8,36.8 0 0 0 155.53,132.43 Z"/>
+                            <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[16]}" Opacity="{Binding XPos}" Style="{StaticResource NosGlowStyle5}" StrokeThickness="11" Data="M 203.06,124.05 A 64.5,64.5 0 0 1 221.46,171.60 L 193.72,171.60 A 36.8,36.8 0 0 0 183.73,143.90 Z"/>
+                            <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[16]}" Opacity="{Binding XPos}" Style="{StaticResource NosGlowStyle5}" StrokeThickness="7" Data="M 203.06,124.05 A 64.5,64.5 0 0 1 221.46,171.60 L 193.72,171.60 A 36.8,36.8 0 0 0 183.73,143.90 Z"/>
+                            <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[16]}" Opacity="{Binding XPos}" Style="{StaticResource NosGlowStyle5}" StrokeThickness="3.5" Data="M 203.06,124.05 A 64.5,64.5 0 0 1 221.46,171.60 L 193.72,171.60 A 36.8,36.8 0 0 0 183.73,143.90 Z"/>
+                        </Canvas>
+                        <!-- Segment 1 (RPMGaugeNumbers[17].XPos = opacity) -->
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[17]}" Opacity="{Binding XPos}" Style="{StaticResource NosFillStyle}" Data="M 124.75,225.06 A 64.5,64.5 0 0 1 94.33,184.45 L 121.40,178.52 A 36.8,36.8 0 0 0 139.95,201.81 Z">
+                        </Path>
+                        <!-- Segment 2 (RPMGaugeNumbers[18].XPos = opacity) -->
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[18]}" Opacity="{Binding XPos}" Style="{StaticResource NosFillStyle}" Data="M 93.69,181.52 A 64.5,64.5 0 0 1 104.29,132.03 L 126.56,148.52 A 36.8,36.8 0 0 0 120.76,175.59 Z">
+                        </Path>
+                        <!-- Segment 3 (RPMGaugeNumbers[19].XPos = opacity) -->
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[19]}" Opacity="{Binding XPos}" Style="{StaticResource NosFillStyle}" Data="M 106.07,129.62 A 64.5,64.5 0 0 1 150.31,105.05 L 152.54,132.67 A 36.8,36.8 0 0 0 128.34,146.11 Z">
+                        </Path>
+                        <!-- Segment 4 (RPMGaugeNumbers[20].XPos = opacity) -->
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[20]}" Opacity="{Binding XPos}" Style="{StaticResource NosFillStyle}" Data="M 153.30,104.81 A 64.5,64.5 0 0 1 200.91,121.96 L 181.58,141.81 A 36.8,36.8 0 0 0 155.53,132.43 Z">
+                        </Path>
+                        <!-- Segment 5 (RPMGaugeNumbers[16].XPos = opacity) -->
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[16]}" Opacity="{Binding XPos}" Style="{StaticResource NosFillStyle}" Data="M 203.06,124.05 A 64.5,64.5 0 0 1 221.46,171.60 L 193.72,171.60 A 36.8,36.8 0 0 0 183.73,143.90 Z">
+                        </Path>
+                        <!-- Border 1 -->
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[17]}" Opacity="{Binding XPos}" Style="{StaticResource NosBorderStyle}" Data="M 124.75,225.06 A 64.5,64.5 0 0 1 94.33,184.45 L 99.21,183.38 A 59.5,59.5 0 0 0 127.49,220.87 Z">
+                        </Path>
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[18]}" Opacity="{Binding XPos}" Style="{StaticResource NosBorderStyle}" Data="M 93.69,181.52 A 64.5,64.5 0 0 1 104.29,132.03 L 108.31,135.01 A 59.5,59.5 0 0 0 98.57,180.45 Z">
+                        </Path>
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[19]}" Opacity="{Binding XPos}" Style="{StaticResource NosBorderStyle}" Data="M 106.07,129.62 A 64.5,64.5 0 0 1 150.31,105.05 L 150.71,110.03 A 59.5,59.5 0 0 0 110.09,132.60 Z">
+                        </Path>
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[20]}" Opacity="{Binding XPos}" Style="{StaticResource NosBorderStyle}" Data="M 153.30,104.81 A 64.5,64.5 0 0 1 200.91,121.96 L 197.42,125.54 A 59.5,59.5 0 0 0 153.70,109.79 Z">
+                        </Path>
+                        <Path IsHitTestVisible="False" DataContext="{Binding RPMGaugeNumbers[16]}" Opacity="{Binding XPos}" Style="{StaticResource NosBorderStyle}" Data="M 203.06,124.05 A 64.5,64.5 0 0 1 221.46,171.60 L 216.45,171.60 A 59.5,59.5 0 0 0 199.57,127.63 Z">
+                        </Path>
+                    </Canvas>
                     <Grid Margin="0,14,-2,-14">
                         <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[0]}" Style="{StaticResource A_Style_FZMaterial_GaugeNumbers}" ImageSource="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_RevNumbers_0.png"/>
                         <local:FZMaterial DataContext="{Binding RPMGaugeNumbers[1]}" Style="{StaticResource A_Style_FZMaterial_GaugeNumbers}" ImageSource="/ForzaUI;component/Textures/Anthem/HUD/Speedometer/HUD_Dial_RevNumbers_1.png"/>

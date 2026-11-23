@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Other mods can switch the NOS off: the `NitroSystem.Control` interface (same as the FH2 version), with `set_blocked(who, 1/0)`, `is_blocked`, `is_active` and `nitro_percent`. While blocked the gauge is hidden and the NOS button does nothing. See `docs/MOD_CONTROL.md`.
+- New NOS gauge on the analog speedometer: a thick round arch around the gear in 5 segments, with a darker outer band and a soft shadow. Burning fades the segments out one after the other, from the right end.
+- New NOS bar on the digital speedometer, a copy of the tachometer's look below it: rounded slanted pills with a dim background, filling and emptying pill by pill, the last one white with a glow.
+- HUD Theme has three choices now: 0 original FH3 (the gear's cyan), 1 FH2 (yellow), 2 FH2 Fast & Furious (blue-cyan). The theme recolours both gauges and changes live from Pause > MODS, no restart. `HudTheme` in the ini is `FH3`, `FH2` or `FF`; `Original` from older versions means `FH2`.
+- The NOS gauge is hidden and nitro is off while ANNA's Auto Drive drives the car (needs FH3 ANNA), and when no driving camera is on screen.
+
 ## 1.0.0
 
 First release for **Forza Horizon 3**, on the [FH3 Mod Platform](https://github.com/Levilente/FH3_ModPlatform) 1.0.0. A port of NitroSystem II for FH2 (2.0.0), itself a continuation of [qiangqiang101's NitroSystem](https://github.com/qiangqiang101/NitroSystem).
