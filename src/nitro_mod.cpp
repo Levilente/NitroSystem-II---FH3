@@ -3591,7 +3591,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "1.0.0";
+    info.version          = "1.1.0-rc";
     info.github_repo      = "Levilente/NitroSystem-II---FH3";
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 1;

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.0-rc
 
 - Other mods can switch the NOS off: the `NitroSystem.Control` interface (same as the FH2 version), with `set_blocked(who, 1/0)`, `is_blocked`, `is_active` and `nitro_percent`. While blocked the gauge is hidden and the NOS button does nothing. See `docs/MOD_CONTROL.md`.
 - New NOS gauge on the analog speedometer: a thick round arch around the gear in 5 segments, with a darker outer band and a soft shadow. Burning fades the segments out one after the other, from the right end.

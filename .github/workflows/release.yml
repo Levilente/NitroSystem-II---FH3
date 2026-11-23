@@ -1,0 +1,68 @@
+name: Release build
+
+# Builds NitroSystemII.dll when a release is published on GitHub, packs it into a zip (fh3-mods/NitroSystemII.dll,
+# ready to unpack next to azimuth.exe) and attaches the zip to that release.
+# It can also be started by hand from the Actions tab (Run workflow) to test the build: that run keeps
+# the zip as a workflow artifact instead. Nothing builds on ordinary pushes or pull requests.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # to attach the DLL to a release
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    env:
+      LLVM_MINGW_VERSION: "20260922"
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Install llvm-mingw
+        run: |
+          curl -fsSL "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-x86_64.tar.xz" -o llvm-mingw.tar.xz
+          sudo mkdir -p /opt/llvm-mingw
+          sudo tar -xJf llvm-mingw.tar.xz -C /opt/llvm-mingw --strip-components=1
+          echo "/opt/llvm-mingw/bin" >> "$GITHUB_PATH"
+
+      - name: Build
+        run: bash scripts/build.sh
+
+      - name: Check the DLL
+        run: |
+          test -s dist/NitroSystemII.dll
+          file dist/NitroSystemII.dll
+          ls -l dist/NitroSystemII.dll
+
+      # The zip holds fh3-mods/NitroSystemII.dll and nothing else.
+      - name: Package
+        env:
+          LABEL: ${{ github.event.release.tag_name || 'manual-test' }}
+        run: |
+          safe=$(echo "$LABEL" | sed 's/[^A-Za-z0-9._-]/-/g')
+          mkdir -p package/fh3-mods
+          cp dist/NitroSystemII.dll package/fh3-mods/
+          (cd package && zip -r "../NitroSystemII-$safe.zip" fh3-mods)
+          unzip -l "NitroSystemII-$safe.zip"
+          echo "ZIP=NitroSystemII-$safe.zip" >> "$GITHUB_ENV"
+
+      - name: Attach the zip to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" "$ZIP" --clobber
+
+      - name: Keep the zip as a workflow artifact (manual runs)
+        if: github.event_name != 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: NitroSystemII-manual-build-${{ github.run_number }}
+          path: NitroSystemII-*.zip
+          if-no-files-found: error
+          retention-days: 14
