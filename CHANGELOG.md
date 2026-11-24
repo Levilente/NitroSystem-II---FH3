@@ -3,6 +3,10 @@
 ## 1.1.0-rc
 
 - Other mods can switch the NOS off: the `NitroSystem.Control` interface (same as the FH2 version), with `set_blocked(who, 1/0)`, `is_blocked`, `is_active` and `nitro_percent`. While blocked the gauge is hidden and the NOS button does nothing. See `docs/MOD_CONTROL.md`.
+- New setting **Boost Method** (MODS): Engine Power (the engine's torque, as before) or FH2 Push (the FH2 mod's push along the car's nose), with an **FH2 Push Strength** slider. Changes right away. `BoostMethod` in the ini is `Engine` or `FH2`; `[FH3] PushScale` is the push's strength.
+- Nitro Button and HUD Theme are now named choices (LB, RB, ... and FH3 / FH2 / FH2 Fast & Furious) instead of numbers, on platforms with API 9 or newer.
+- New setting **Flame Effect**: the nitro flames can use the game's own boost flame (the one of the Hot Wheels speed boost, the new default) or the backfire flames they used before. The boost flame keeps working after a collision knocks the muffler off, is drawn the way the game draws its own boost (crisp and white, not a blue streak), and the flames end as soon as the nitro does.
+- New setting **Boost Look Intensity** (0 to 100%): the game's boost look (crisp white flame, camera pulling back, motion blur) while the nitro burns with Hot Wheels Boost Flames. `BoostLook` in the ini.
 - New NOS gauge on the analog speedometer: a thick round arch around the gear in 5 segments, with a darker outer band and a soft shadow. Burning fades the segments out one after the other, from the right end.
 - New NOS bar on the digital speedometer, a copy of the tachometer's look below it: rounded slanted pills with a dim background, filling and emptying pill by pill, the last one white with a glow.
 - HUD Theme has three choices now: 0 original FH3 (the gear's cyan), 1 FH2 (yellow), 2 FH2 Fast & Furious (blue-cyan). The theme recolours both gauges and changes live from Pause > MODS, no restart. `HudTheme` in the ini is `FH3`, `FH2` or `FF`; `Original` from older versions means `FH2`.
@@ -25,3 +29,6 @@ First release for **Forza Horizon 3**, on the [FH3 Mod Platform](https://github.
 - Settings on **Pause > MODS**.
 - Quiet log: only problems are logged unless `[Settings] Log=1` is set in the ini.
 - Update checks through the platform.
+- "Boost Look Intensity" (ini `BoostLook`, 0..1, slider 0-100%, default 1.0): the boost amount reported for the player's dynamics while the nitro burns is
+  max(real amount, BoostLook). The user saw that the amount also makes the game pull the camera back and add motion blur (the camera code reads it too), so
+  the slider scales the whole look; the flame at partial values is unverified.

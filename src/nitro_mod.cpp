@@ -86,6 +86,18 @@ static std::atomic<bool> g_refill_on_start{true};    // "Refill Nitro on Race St
 // [Settings] HudHide=1 (default) ties the opacity of the NOS frame to the nitrous kit (hidden without one) through extra
 // bindings in the speedometer XAML. 0 leaves the XAML as it was: the frame stays, empty, on cars without a kit.
 static std::atomic<bool> g_hud_hide{true};
+// "Boost Method": how the nitro makes the car faster. 0 = engine power (the engine's torque is scaled, so it goes through the gearbox
+// and tyres like any torque), 1 = the FH2 method (the car's speed is pushed along its nose).
+enum { kBoostEngine = 0, kBoostFH2 = 1 };
+static std::atomic<int> g_boost_method{kBoostEngine};
+// "Flame Effect": which of the game's two exhaust effects the nitro flames use. 0 = the game's boost effect (the one of the Hot Wheels speed
+// boost: it keeps working after a muffler is knocked off and isn't smeared by the motion blur), 1 = the backfire effect (the original).
+enum { kFlameBoost = 0, kFlameBackfire = 1 };
+static std::atomic<int> g_flame_effect{kFlameBoost};
+// "Boost Look Intensity": the boost amount the mod reports for the player's car while the nitro burns (0..1). The game's flame, camera pull-back and
+// motion blur all follow that amount, so it sets how strongly the nitro looks like the game's boost. 0 reports nothing.
+static std::atomic<float> g_boost_look{1.0f};
+static std::atomic<float> g_fh2_push_scale{0.30f};   // [FH3] PushScale: 1.0 is the strength of the FH2 mod
 static std::atomic<int> g_hud_theme{2};              // "HUD Theme": 0 = Original FH3 (cyan of the gear), 1 = FH2 (yellow), 2 = FH2 Fast & Furious (blue-cyan); changes live
 static std::atomic<float> g_duration{5.0f};          // tank size in seconds (5 s here; the original default was 20 s)
 static std::atomic<float> g_buildup_time{0.5f};      // Spire default BuildupTime = 0.5s
@@ -225,6 +237,22 @@ static void load_config() {
     g_rumble.store(GetPrivateProfileIntW(L"Settings", L"Rumble", 1, g_ini_path) != 0);
 
     g_hud_hide.store(GetPrivateProfileIntW(L"Settings", L"HudHide", 1, g_ini_path) != 0);
+    {
+        wchar_t method[32];
+        GetPrivateProfileStringW(L"Settings", L"BoostMethod", L"Engine", method, 32, g_ini_path);
+        g_boost_method.store(_wcsicmp(method, L"FH2") == 0 ? kBoostFH2 : kBoostEngine);   // unknown values (an old "HotWheels" too): Engine
+    }
+    {
+        wchar_t bl[32];
+        GetPrivateProfileStringW(L"Settings", L"BoostLook", L"1.00", bl, 32, g_ini_path);
+        const float v = (float)_wtof(bl);
+        g_boost_look.store(v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v);
+    }
+    {
+        wchar_t fe[32];
+        GetPrivateProfileStringW(L"Settings", L"FlameEffect", L"Boost", fe, 32, g_ini_path);
+        g_flame_effect.store(_wcsicmp(fe, L"Backfire") == 0 ? kFlameBackfire : kFlameBoost);   // unknown values: Boost
+    }
     wchar_t theme[32];
     GetPrivateProfileStringW(L"Settings", L"HudTheme", L"FF", theme, 32, g_ini_path);
     // FH3 = the FH3 gear's cyan, FH2 = yellow ("Original" in older versions meant this), FF = the Fast & Furious blue-cyan
@@ -282,6 +310,10 @@ static void save_config() {
     WritePrivateProfileStringW(L"Settings", L"RefillOnRaceStart", g_refill_on_start.load() ? L"1" : L"0", g_ini_path);
     WritePrivateProfileStringW(L"Settings", L"RefundOnRewind", g_refund_on_rewind.load() ? L"1" : L"0", g_ini_path);
     WritePrivateProfileStringW(L"Settings", L"Rumble", g_rumble.load() ? L"1" : L"0", g_ini_path);
+    WritePrivateProfileStringW(L"Settings", L"BoostMethod", g_boost_method.load() == kBoostFH2 ? L"FH2" : L"Engine", g_ini_path);
+    swprintf_s(buf, 64, L"%.2f", g_boost_look.load());
+    WritePrivateProfileStringW(L"Settings", L"BoostLook", buf, g_ini_path);
+    WritePrivateProfileStringW(L"Settings", L"FlameEffect", g_flame_effect.load() == kFlameBackfire ? L"Backfire" : L"Boost", g_ini_path);
     WritePrivateProfileStringW(L"Settings", L"HudTheme", g_hud_theme.load() == 0 ? L"FH3" : g_hud_theme.load() == 1 ? L"FH2" : L"FF", g_ini_path);
     WritePrivateProfileStringW(L"Settings", L"HudHide", g_hud_hide.load() ? L"1" : L"0", g_ini_path);
     swprintf_s(buf, 64, L"%.1f", g_duration.load());
@@ -876,7 +908,7 @@ static std::atomic<float> g_torque_base_seen{0.0f};
 static void update_torque(char* car) {
     if (car != g_player_cardynamics && car != g_scaled_car) return;
     const bool want = car == g_player_cardynamics && g_enabled.load() && g_nitro_active.load() && nu_level() > 0 &&
-                      g_current_boost.load() > 1.0f;
+                      g_current_boost.load() > 1.0f && g_boost_method.load() == kBoostEngine;   // (the other methods push the speed instead)
     float* f = (float*)(car + g_torque_field.load());
     if (car == g_scaled_car) {
         if (*f != g_scaled_value) g_scaled_base = *f;   // the game wrote its own value meanwhile: that's the base now
@@ -1024,7 +1056,21 @@ static void nitro_tick(void* this_ptr, float dt) {
                 accel = 0.0f;
             }
             g_engine_accel.store(accel);
-            const float push = 0.0f;   // FH3: nitro is engine torque now (detour_addref), nothing is pushed
+            // The FH2 method pushes the car's speed along its (horizontal) nose, only on the ground, and fades in with the buildup.
+            // Engine method: nothing is pushed here, the torque is scaled instead (update_torque).
+            float push = 0.0f;
+            const int method = g_boost_method.load();
+            if (method != kBoostEngine && level && grounded && g_enabled.load() && g_nitro_active.load() && nu_level() > 0 && g_current_boost.load() > 1.0f) {
+                const float boost = g_current_boost.load();
+                // FH2: impulse = (boost - 1) x 22 m/s2, scaled down for FH3
+                push = (boost - 1.0f) * 22.0f * dt_use * g_fh2_push_scale.load();
+                if (push > 0.0f) {
+                    vel[0] += dir[0] * push;
+                    vel[1] += dir[1] * push;
+                    vel[2] += dir[2] * push;
+                    g_boosted_frames.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
             prev_along = along + push;
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -2079,6 +2125,8 @@ static std::atomic<void*> g_fh3_player_car{nullptr};
 static std::atomic<bool> g_fh3_car_drive{false};     // the player's Car has been seen: it drives the flames
 static std::atomic<uint32_t> g_fh3_car_updates{0}, g_fh3_car_posts{0};
 
+// Only the Car's live exhaust locators are used. (Tips used to be remembered per Car for a muffler that was knocked off, but the probe showed the
+// locator stays live, and the game reuses one Car object across car swaps, so remembered tips of an older car showed up as extra flames.)
 static uint32_t fh3_car_exhaust_tips(char* car, uint8_t* msg) {
     memset(msg, 0, kFH3TipBytes);
     uint32_t mask = 0;
@@ -2204,6 +2252,31 @@ static uint64_t detour_hud_ctrl(void* c, void* a, void* b, void* d) {
     return r;
 }
 
+// ---- the game's own boost effect (Hot Wheels speed boost) -------------------------------------------------------------------
+// The Car update posts a boost message once when the car dynamics raise their boost flag (see CLAUDE.md): a count and up to 8 matrices of 0x40
+// bytes from +0x10, one per live exhaust locator (identity where unused). The mod posts the same message while the nitro burns (Flame Effect:
+// Hot Wheels Boost Flames) by calling the game's function directly.
+static const uintptr_t kFH3BoostPost = 0x1DFDB40;
+typedef uint64_t (*FH3BoostPostFn)(void* deferred, const void* msg);
+static FH3BoostPostFn g_orig_boost_post = nullptr;
+// The boost amount (a float in the dynamics, 1.0 while the game's boost runs, else 0; vtable slot 473 = game+0x1D3D370) is one of the car values the
+// game's effects follow: its boost flame is drawn crisp and white at 1.0 and as a blue streak at 0, and the camera pulls back and blurs with it.
+// While the nitro burns (Hot Wheels Boost Flames) the mod reports max(real amount, Boost Look Intensity) for the player's car.
+static const uintptr_t kFH3BoostFloatGetter = 0x1D3D370;
+typedef float (*FH3BoostFloatFn)(void* iface);
+static FH3BoostFloatFn g_orig_boost_float = nullptr;
+static float detour_boost_float(void* iface) {
+    const float v = g_orig_boost_float ? g_orig_boost_float(iface) : 0.0f;
+    void* dyn = g_player_cardynamics;
+    if (!(dyn && iface == (char*)dyn + 0x4B0)) return v;
+    if (g_flame_effect.load() == kFlameBoost && g_enabled.load() && g_nitro_active.load() && nu_level() > 0 && !nos_blocked()) {
+        const float k = g_boost_look.load();
+        if (k > v) return k;
+    }
+    return v;
+}
+static std::atomic<bool> g_boost_flames_on{false};   // the mod's boost flames are (or may still be) running on the player's car
+
 static uint64_t detour_fh3_carobj_update(void* self, float dt) {
     uint64_t r = g_orig_fh3_carobj_update(self, dt);
     g_fh3_car_updates.fetch_add(1, std::memory_order_relaxed);
@@ -2266,6 +2339,17 @@ static uint64_t detour_fh3_carobj_update(void* self, float dt) {
     }
     g_fh3_car_drive.store(true);
     g_fh3_car_drive_fwd.store(true);
+    if (g_boost_flames_on.load() && !(g_enabled.load() && g_nitro_active.load())) {
+        // The nitro stopped. The game keeps a boost's flames for the boost's whole effect time (3 s) after the LAST message, because each
+        // message restarts a timer at presentation+0x20C0 that its per-frame update counts up; when the timer passes the effect time the
+        // update ends every boost flame by itself. So push the timer past it: the flames end on the next frame, by the game's own path.
+        g_boost_flames_on.store(false);
+        char* pres = deferred ? *(char**)((char*)deferred + 0x8) : nullptr;
+        if (pres && readable_ptr(pres, 8) && readable_ptr(pres + 0x20C0, 4)) {
+            const uintptr_t pvt = *(uintptr_t*)pres - (uintptr_t)g_game_base;
+            if (pvt == kFH3PresVtables[0] || pvt == kFH3PresVtables[1]) *(volatile float*)(pres + 0x20C0) = 1000.0f;
+        }
+    }
     if (!g_orig_fh3_post || !deferred || !g_enabled.load() || !g_nitro_active.load()) return r;
     static uint64_t last = 0;   // the update runs at the simulation rate: one message every 40 ms keeps the tips burning
     uint64_t now = GetTickCount64();
@@ -2288,26 +2372,30 @@ static uint64_t detour_fh3_carobj_update(void* self, float dt) {
             nlog(g_api, g_mod, b);
         }
     }
-    {   // The game can empty the Car's exhaust pointers again after a backfire, so a tick may find none. Keep the last good set
-        // of tips for this Car and use it until the pointers are there again (dropped when the Car changes).
-        alignas(16) static uint8_t good[kFH3TipBytes];
-        static uint32_t good_mask = 0;
-        static void* good_car = nullptr;
-        if (mask) {
-            memcpy(good, msg, kFH3TipBytes);
-            good_mask = mask;
-            good_car = car;
-        } else if (good_car == car && good_mask) {
-            memcpy(msg, good, kFH3TipBytes);
-            mask = good_mask;
-        }
-    }
     uint32_t forced = g_fh3_mask_forced.load();
     if (forced) {
         for (int i = 0; i < kFH3TipCount; ++i) if (!(forced >> i & 1)) msg[i * kFH3TipSize + kFH3TipFlag] = 0;
         mask &= forced;
     }
     if (!mask) return r;
+    if (g_flame_effect.load() != kFlameBackfire && g_orig_boost_post) {
+        // The game's own boost message (see the probe above): the count, then the matrix of each tip, the rest identity. Posted every 40 ms
+        // like the backfire message: the presentation only starts an effect for an entry whose previous one has ended.
+        alignas(16) uint8_t bm[0x220];
+        memset(bm, 0, sizeof bm);
+        int n = 0;
+        for (int i = 0; i < kFH3TipCount; ++i)
+            if (mask >> i & 1) { memcpy(bm + 0x10 + 0x40 * n, msg + i * kFH3TipSize, 0x40); ++n; }
+        for (int k = n; k < 8; ++k) {
+            float* f = (float*)(bm + 0x10 + 0x40 * k);
+            f[0] = f[5] = f[10] = f[15] = 1.0f;
+        }
+        *(int*)bm = n;
+        g_orig_boost_post(deferred, bm);
+        g_boost_flames_on.store(true);
+        g_fh3_car_posts.fetch_add(1, std::memory_order_relaxed);
+        return r;
+    }
     g_fh3_in_drive.store(true);
     g_orig_fh3_post(deferred, msg);
     g_fh3_in_drive.store(false);
@@ -2332,6 +2420,11 @@ static void install_fh3_flames(char* base) {
                                        (void*)detour_fh3_carobj_update, (void**)&g_orig_fh3_carobj_update);
     if (!(h4 && g_api->enable_hooks(g_mod, h4)))
         nlog(g_api, g_mod, "Could not hook the Car update: flames fall back to the exhaust locators found by searching.");
+    {   // the game's boost message is called directly; its boost amount is followed (see detour_boost_float)
+        g_orig_boost_post = (FH3BoostPostFn)(base + kFH3BoostPost);
+        FH3Hook* hg = g_api->hook_function(g_mod, "Car dynamics boost amount", base + kFH3BoostFloatGetter, (void*)detour_boost_float, (void**)&g_orig_boost_float);
+        if (!(hg && g_api->enable_hooks(g_mod, hg))) { g_orig_boost_float = nullptr; nlog(g_api, g_mod, "Could not hook the boost amount: the flame is drawn in its idle look."); }
+    }
     nlog(g_api, g_mod, ok1 && ok2 ? "Backfire hooked (nitro exhaust flames)." : "Could not hook the backfire: no nitro flames.");
 }
 
@@ -2739,7 +2832,25 @@ static void detour_speedo_tick(void* speedo, float rpm) {
 // Settings callbacks
 static void set_rumble(WORD left_motor, WORD right_motor);
 
+static void on_slider_changed(void* user, const char* key, float value);
+
 static void on_setting_changed(void* user, const char* key, int value) {
+    // Choice rows (platform API 9) give the index of the name chosen. The two that used to be sliders keep their handler:
+    // the Nitro Button slider counted from 1, the HUD Theme slider from 0.
+    if (strcmp(key, "NitroButton") == 0) { on_slider_changed(user, key, (float)(value + 1)); return; }
+    if (strcmp(key, "HudTheme") == 0) { on_slider_changed(user, key, (float)value); return; }
+    if (strcmp(key, "FlameEffect") == 0) {   // a choice row: 0 = hot wheels boost flames, 1 = backfire flames
+        g_flame_effect.store(value == 1 ? kFlameBackfire : kFlameBoost);
+        save_config();
+        if (g_api && g_mod) nlog(g_api, g_mod, g_flame_effect.load() == kFlameBackfire ? "Flame Effect set to backfire flames (saved)" : "Flame Effect set to the game's boost flames (saved)");
+        return;
+    }
+    if (strcmp(key, "BoostMethod") == 0) {   // a choice row: value is the index of the name chosen
+        g_boost_method.store(value < 0 ? 0 : value > 1 ? 1 : value);
+        save_config();
+        if (g_api && g_mod) nlog(g_api, g_mod, g_boost_method.load() == kBoostFH2 ? "Boost Method set to FH2 push (saved)" : "Boost Method set to engine power (saved)");
+        return;
+    }
     if (strcmp(key, "DebugOverlay") == 0) {
         g_debug.store(value != 0);
         save_config();
@@ -2796,6 +2907,7 @@ static void on_setting_changed(void* user, const char* key, int value) {
     }
 }
 
+static wchar_t wbuf_push[32];
 static void on_slider_changed(void* user, const char* key, float value) {
     (void)user;
     char buf[128];
@@ -2808,6 +2920,8 @@ static void on_slider_changed(void* user, const char* key, float value) {
         save_config();
         snprintf(buf, sizeof(buf), "NitroButton set to %ls (saved)", k_buttons[idx].name);
         if (g_api && g_mod) nlog(g_api, g_mod, buf);
+    } else if (strcmp(key, "BoostMethod") == 0) {   // the slider fallback of an older platform
+        on_setting_changed(user, key, (int)(value + 0.5f) - 1);
     } else if (strcmp(key, "HudTheme") == 0) {
         const int th = (int)(value + 0.5f);
         g_hud_theme.store(th < 0 ? 0 : th > 2 ? 2 : th);
@@ -2833,6 +2947,17 @@ static void on_slider_changed(void* user, const char* key, float value) {
         g_fov_boost.store(value);
         save_config();
         snprintf(buf, sizeof(buf), "FovBoost set to %.0f%% (saved)", value * 100.0f);
+        if (g_api && g_mod) nlog(g_api, g_mod, buf);
+    } else if (strcmp(key, "PushScale") == 0) {
+        g_fh2_push_scale.store(value);
+        swprintf_s(wbuf_push, 32, L"%.2f", value);
+        WritePrivateProfileStringW(L"FH3", L"PushScale", wbuf_push, g_ini_path);
+        snprintf(buf, sizeof(buf), "PushScale (FH2 NitroSystem strength) set to %.2f (saved)", value);
+        if (g_api && g_mod) nlog(g_api, g_mod, buf);
+    } else if (strcmp(key, "BoostLook") == 0) {
+        g_boost_look.store(value < 0.0f ? 0.0f : value > 1.0f ? 1.0f : value);
+        save_config();
+        snprintf(buf, sizeof(buf), "BoostLook (boost look intensity) set to %.0f%% (saved)", g_boost_look.load() * 100.0f);
         if (g_api && g_mod) nlog(g_api, g_mod, buf);
     } else if (strcmp(key, "BuildupTime") == 0) {
         g_buildup_time.store(value);
@@ -3180,8 +3305,8 @@ static void nitro_worker_thread() {
     // code, not from a running game).
     g_research_log = GetPrivateProfileIntW(L"FH3", L"ResearchLog", 0, g_ini_path) != 0;
     if (g_research_log) std::thread([] {
-        for (int i = 0; i < 300; ++i) {
-            Sleep(2000);
+        for (int i = 0; i < 1200; ++i) {   // every half second for 10 minutes
+            Sleep(500);
             char b[480];
             static uint64_t last_frames = 0;
             const uint64_t frames = g_physics_frames.load();
@@ -3190,7 +3315,7 @@ static void nitro_worker_thread() {
             for (const auto& c : g_seen)
                 if (c.ptr && now - c.tick < 1000) ++cars;
             snprintf(b, sizeof b,
-                     "FH3 check: %llu car updates in 2 s (dt %.4f), %d cars, player pos %s (%.0f, %.0f, %.0f), player car %p at %.1f m from it, "
+                     "FH3 check: %llu car updates in 0.5 s (dt %.4f), %d cars, player pos %s (%.0f, %.0f, %.0f), player car %p at %.1f m from it, "
                      "torque scale %.3f at +0x%X, speed %.1f m/s (game's own %.1f, measured %.1f), accel %.1f m/s2 plain / %.1f with nitro (engine %.1f, power scale %.2f), up axis %d, boosted ticks %llu",
                      (unsigned long long)(frames - last_frames), g_last_dt.load(), cars,
                      now - g_player_pos_tick.load() < 1000 ? "seen" : "not seen", g_player_pos[0], g_player_pos[1], g_player_pos[2],
@@ -3418,6 +3543,7 @@ static void build_overlay_lines() {
         for (const auto& b : g_blockers) who += (who.empty() ? "" : ", ") + b;
         overlay_line("NOS blocked by: %s", who.c_str());
     }
+    overlay_line("boost method: %s", g_boost_method.load() == kBoostFH2 ? "FH2 push" : "engine power");
     overlay_line("nitrous kit: stage=%d boost=%.1fx garage id=%u", nu_level(), nu_boost(nu_level()), (unsigned)nu_active_garage);
     overlay_line("driving=%d  physics age=%llums  speedometer age=%llums", driving ? 1 : 0,
                  (unsigned long long)phys_age, (unsigned long long)speedo_age);
@@ -3591,7 +3717,7 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
     FH3ModInfo info{};
     info.size             = sizeof(info);
     info.name             = "NitroSystem II";
-    info.version          = "1.1.0-rc";
+    info.version          = "1.1.0-rc2";
     info.github_repo      = "Levilente/NitroSystem-II---FH3";
     info.platform_version = FH3MOD_PLATFORM_VERSION;
     info.check_updates    = 1;
@@ -3623,7 +3749,15 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
         wchar_t buf[32] = {};
         // [FH3] PowerScale: the extra torque is (boost - 1) x PowerScale, so the default 2 gives +40 / +80 / +120%
         // torque on stages 1 / 2 / 3 (1 would be the bare 1.2 / 1.4 / 1.6x; tested 1 Nov: 1 felt weak). (PushScale was the old, constant-push setting.)
-        WritePrivateProfileStringW(L"FH3", L"PushScale", nullptr, g_ini_path);
+        GetPrivateProfileStringW(L"FH3", L"PushScale", L"", buf, 32, g_ini_path);   // the FH2 push method's strength on FH3
+        if (buf[0]) {
+            float v = (float)_wtof(buf);
+            if (fabsf(v - 0.17f) < 0.001f) {   // 0.17 was the default of an earlier version (written into every ini), never chosen: move it to the new default
+                v = 0.30f;
+                WritePrivateProfileStringW(L"FH3", L"PushScale", L"0.30", g_ini_path);
+            }
+            if (v > 0.0f) g_fh2_push_scale.store(v > 1.0f ? 1.0f : v);
+        } else WritePrivateProfileStringW(L"FH3", L"PushScale", L"0.30", g_ini_path);
         GetPrivateProfileStringW(L"FH3", L"PowerScale", L"", buf, 32, g_ini_path);
         float scale = buf[0] ? (float)_wtof(buf) : 2.0f;
         if (!(scale > 0.0f && scale <= 5.0f)) scale = 2.0f;
@@ -3716,33 +3850,127 @@ FH3MOD_EXPORT int fh3mod_init(const FH3ModApi* api) {
             s_button.size          = sizeof(s_button);
             s_button.key           = "NitroButton";
             s_button.label         = "Nitro Button";
-            s_button.description   = "1 LB, 2 RB, 3 A, 4 B, 5 X, 6 Y, 7 LS click, 8 RS click, 9 D-Pad Up, 10 D-Pad Down, "
-                                     "11 D-Pad Left, 12 D-Pad Right, 13 Back, 14 Start, 15 LT, 16 RT. Pick one the game "
-                                     "doesn't use while driving. Applies right away.";
-            s_button.kind          = FH3_SETTING_SLIDER;
-            s_button.min           = 1.0f;
-            s_button.max           = (float)(sizeof(k_buttons) / sizeof(k_buttons[0]));
-            s_button.step          = 1.0f;
-            s_button.slider_value  = (float)(button_index() + 1);
-            s_button.display_scale = 1.0f;
-            s_button.decimals      = 0;
-            s_button.on_slide      = on_slider_changed;
+            s_button.description   = "Which controller button burns the nitro. Pick one the game doesn't use while driving (LB by default). "
+                                     "Applies right away.";
+            static const char* const k_button_names[] = {"LB", "RB", "A", "B", "X", "Y", "LS Click", "RS Click", "D-Pad Up", "D-Pad Down",
+                                                          "D-Pad Left", "D-Pad Right", "Back", "Start", "LT", "RT"};
+            static_assert(sizeof(k_button_names) / sizeof(k_button_names[0]) == sizeof(k_buttons) / sizeof(k_buttons[0]), "one name per button");
+            if (api->api_version >= 9) {   // named choices
+                s_button.kind          = FH3_SETTING_CHOICE;
+                s_button.choices       = k_button_names;
+                s_button.choice_count  = (uint32_t)(sizeof(k_buttons) / sizeof(k_buttons[0]));
+                s_button.value         = button_index();
+                s_button.on_change     = on_setting_changed;
+            } else {                       // an older platform: a 1..16 slider
+                s_button.kind          = FH3_SETTING_SLIDER;
+                s_button.min           = 1.0f;
+                s_button.max           = (float)(sizeof(k_buttons) / sizeof(k_buttons[0]));
+                s_button.step          = 1.0f;
+                s_button.slider_value  = (float)(button_index() + 1);
+                s_button.display_scale = 1.0f;
+                s_button.decimals      = 0;
+                s_button.on_slide      = on_slider_changed;
+            }
             api->add_setting(g_mod, &s_button);
+
+            {   // How the nitro makes the car faster
+                static const char* const k_methods[2] = {"Engine Power", "FH2 NitroSystem"};
+                FH3Setting s_bm{};
+                s_bm.size          = sizeof(s_bm);
+                s_bm.key           = "BoostMethod";
+                s_bm.label         = "Boost Method";
+                s_bm.description   = "How the nitro makes the car faster. Engine Power: more engine torque (the original; it goes through the gears and tyres). FH2 NitroSystem: the speed is pushed along the car's nose, like the FH2 mod (its strength is the FH2 NitroSystem Strength row).";
+                if (api->api_version >= 9) {
+                    s_bm.kind         = FH3_SETTING_CHOICE;
+                    s_bm.choices      = k_methods;
+                    s_bm.choice_count = 2;
+                    s_bm.value        = g_boost_method.load();
+                    s_bm.on_change    = on_setting_changed;
+                } else {   // an older platform has no named choices: a 1..2 slider
+                    s_bm.kind          = FH3_SETTING_SLIDER;
+                    s_bm.min           = 1.0f;
+                    s_bm.max           = 2.0f;
+                    s_bm.step          = 1.0f;
+                    s_bm.slider_value  = (float)(g_boost_method.load() + 1);
+                    s_bm.display_scale = 1.0f;
+                    s_bm.decimals      = 0;
+                    s_bm.on_slide      = on_slider_changed;
+                }
+                api->add_setting(g_mod, &s_bm);
+            }
+
+            if (api->api_version >= 9) {   // Which exhaust effect the flames use
+                static const char* const k_flames[2] = {"Hot Wheels Boost Flames", "Backfire Flames"};
+                FH3Setting s_fe{};
+                s_fe.size         = sizeof(s_fe);
+                s_fe.key          = "FlameEffect";
+                s_fe.label        = "Flame Effect";
+                s_fe.description  = "Which of the game's exhaust effects the nitro flames use. Hot Wheels Boost Flames: the effect of the Hot Wheels speed boost, drawn the way the game draws it; it keeps working when a muffler is knocked off. Backfire Flames: the original look.";
+                s_fe.kind         = FH3_SETTING_CHOICE;
+                s_fe.choices      = k_flames;
+                s_fe.choice_count = 2;
+                s_fe.value        = g_flame_effect.load();
+                s_fe.on_change    = on_setting_changed;
+                api->add_setting(g_mod, &s_fe);
+            }
+
+            {   // How strongly the nitro looks like the game's boost
+                FH3Setting s_bl{};
+                s_bl.size          = sizeof(s_bl);
+                s_bl.key           = "BoostLook";
+                s_bl.label         = "Boost Look Intensity";
+                s_bl.description   = "How strongly the nitro looks like the game's own boost (Flame Effect: Hot Wheels Boost Flames): the crisp white flame, the camera pulling back and the motion blur all follow this. 100% is the game's full boost, 0% turns it off.";
+                s_bl.kind          = FH3_SETTING_SLIDER;
+                s_bl.min           = 0.0f;
+                s_bl.max           = 1.0f;
+                s_bl.step          = 0.05f;
+                s_bl.slider_value  = g_boost_look.load();
+                s_bl.display_scale = 100.0f;
+                s_bl.decimals      = 0;
+                s_bl.on_slide      = on_slider_changed;
+                api->add_setting(g_mod, &s_bl);
+            }
+
+            {   // How hard the FH2 NitroSystem method pushes
+                FH3Setting s_ps{};
+                s_ps.size          = sizeof(s_ps);
+                s_ps.key           = "PushScale";
+                s_ps.label         = "FH2 NitroSystem Strength";
+                s_ps.description   = "How hard the FH2 NitroSystem boost method pushes (only used with Boost Method: FH2 NitroSystem). 1.00 (the maximum) is the strength the FH2 mod had; the default is 0.30.";
+                s_ps.kind          = FH3_SETTING_SLIDER;
+                s_ps.min           = 0.05f;
+                s_ps.max           = 1.0f;
+                s_ps.step          = 0.01f;
+                s_ps.slider_value  = g_fh2_push_scale.load();
+                s_ps.display_scale = 1.0f;
+                s_ps.decimals      = 2;
+                s_ps.on_slide      = on_slider_changed;
+                api->add_setting(g_mod, &s_ps);
+            }
 
             FH3Setting s_hud{};
             s_hud.size          = sizeof(s_hud);
             s_hud.key           = "HudTheme";
             s_hud.label         = "HUD Theme";
-            s_hud.description   = "0 Original FH3 (cyan like the gear), 1 FH2 (yellow NOS bar), 2 FH2 Fast & Furious (blue-cyan NOS bar).";
-            s_hud.kind          = FH3_SETTING_SLIDER;
-            s_hud.min           = 0.0f;
-            s_hud.max           = 2.0f;
-            s_hud.step          = 1.0f;
-            s_hud.slider_value  = (float)g_hud_theme.load();
-            s_hud.display_scale = 1.0f;
-            s_hud.decimals      = 0;
-            s_hud.needs_restart = 0;
-            s_hud.on_slide      = on_slider_changed;
+            s_hud.description   = "The colour of the NOS gauge: FH3 (cyan like the gear), FH2 (yellow) or FH2 Fast & Furious (blue-cyan). Applies right away.";
+            static const char* const k_theme_names[3] = {"FH3 (Gear Cyan)", "FH2 (Yellow)", "FH2 Fast & Furious (Blue)"};
+            if (api->api_version >= 9) {   // named choices
+                s_hud.kind         = FH3_SETTING_CHOICE;
+                s_hud.choices      = k_theme_names;
+                s_hud.choice_count = 3;
+                s_hud.value        = g_hud_theme.load();
+                s_hud.on_change    = on_setting_changed;
+            } else {                       // an older platform: a 0..2 slider
+                s_hud.kind          = FH3_SETTING_SLIDER;
+                s_hud.min           = 0.0f;
+                s_hud.max           = 2.0f;
+                s_hud.step          = 1.0f;
+                s_hud.slider_value  = (float)g_hud_theme.load();
+                s_hud.display_scale = 1.0f;
+                s_hud.decimals      = 0;
+                s_hud.needs_restart = 0;
+                s_hud.on_slide      = on_slider_changed;
+            }
             api->add_setting(g_mod, &s_hud);
 
             FH3Setting s_dur{};

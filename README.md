@@ -62,9 +62,13 @@ Everything is on **Pause > MODS**; the values are saved to `fh3-mods\NitroSystem
 | Setting | Range | Default | What it does |
 |---|---|---|---|
 | Nitro System | On / Off | On | Turns nitro on or off. A Nitrous Kit is still needed on the car. |
-| Nitro Button | 1 - 16 | 1 (LB) | Which button burns nitro (numbers below). Applies right away. |
+| Nitro Button | LB, RB, A, B, X, Y, LS Click, RS Click, D-Pad (4), Back, Start, LT, RT | LB | Which button burns nitro. Applies right away. |
 | Nitro Debug Overlay | On / Off | Off | Draws debug info over the game (borderless or windowed mode only). |
-| HUD Theme | 0 - 2 | 2 | 0 original FH3 (the gear's cyan), 1 FH2 (yellow NOS gauge), 2 FH2 Fast & Furious (blue-cyan NOS gauge). Changes right away. |
+| Boost Method | Engine Power / FH2 Push | Engine Power | How the nitro makes the car faster. **Engine Power**: more engine torque, so it goes through the gears and tyres (the original). **FH2 Push**: the car's speed is pushed along its nose, like the FH2 mod. Changes right away. |
+| Flame Effect | Hot Wheels Boost Flames / Backfire Flames | Hot Wheels Boost Flames | Which of the game's exhaust effects the nitro flames use. **Hot Wheels Boost Flames** is the effect of the Hot Wheels speed boost: it keeps working when a muffler is knocked off. **Backfire Flames** is the original look. Changes right away. |
+| Boost Look Intensity | 0% - 100% | 100% | How strongly the nitro looks like the game's own boost (with Flame Effect: Hot Wheels Boost Flames). The crisp white flame, the camera pulling back and the motion blur all follow it. 100% is the game's full boost, 0% turns it off. Changes right away. |
+| FH2 Push Strength | 0.05 - 1.00 | 0.30 | How hard FH2 Push pushes (only used with that method). 1.00 is the FH2 mod's strength. Changes right away. |
+| HUD Theme | FH3 (Gear Cyan) / FH2 (Yellow) / FH2 Fast & Furious (Blue) | FH2 Fast & Furious | The colour of the NOS gauge on both speedometers. Changes right away. |
 | Hide Nitro Gauge Without Kit | On / Off | On | Hides the NOS gauge on cars with no Nitrous Kit. |
 | Nitro Tank Capacity (sec) | 5 - 60 | 5 | Seconds of nitro in a full tank. |
 | Nitro Buildup Time (sec) | 0.1 - 2.0 | 0.5 | How long the push takes to ramp up. |
@@ -92,12 +96,13 @@ Boost2=1.4
 Boost3=1.6
 
 [FH3]
+PushScale=0.30   ; strength of the FH2 Push method (1.00 = the FH2 mod's strength)
 PowerScale=2.0   ; extra torque = (boost - 1) x PowerScale; 2 gives +40 / +80 / +120 % torque on stages 1 / 2 / 3
 ```
 
 Which stage is fitted to and owned by each car is kept by the platform's upgrade bridge (older `[GarageNitro]` / `[GarageOwned]` entries in the ini are moved over once).
 
-**Nitro Button numbers** (the Mods page can only show numbers; in the ini you write the name, for example `NitroButton=LB`):
+**Nitro Button names** (the Mods page shows the name on platform API 9 or newer, and the number from this table on an older platform; in the ini you write the name, for example `NitroButton=LB`):
 
 | # | Name | Button | # | Name | Button |
 |---|---|---|---|---|---|
