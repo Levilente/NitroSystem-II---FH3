@@ -62,9 +62,13 @@ Everything is on **Pause > MODS**; the values are saved to `fh3-mods\NitroSystem
 | Setting | Range | Default | What it does |
 |---|---|---|---|
 | Nitro System | On / Off | On | Turns nitro on or off. A Nitrous Kit is still needed on the car. |
-| Nitro Button | 1 - 16 | 1 (LB) | Which button burns nitro (numbers below). Applies right away. |
+| Nitro Button | LB, RB, A, B, X, Y, LS Click, RS Click, D-Pad (4), Back, Start, LT, RT | LB | Which button burns nitro. Applies right away. |
 | Nitro Debug Overlay | On / Off | Off | Draws debug info over the game (borderless or windowed mode only). |
-| HUD Theme | 1 - 2 | 2 | 1 original (yellow NOS bar), 2 Fast & Furious (cyan NOS bar). **Needs a game restart.** |
+| Boost Method | Engine Power / FH2 Push | Engine Power | How the nitro makes the car faster. **Engine Power**: more engine torque, so it goes through the gears and tyres (the original). **FH2 Push**: the car's speed is pushed along its nose, like the FH2 mod. Changes right away. |
+| Flame Effect | Hot Wheels Boost Flames / Backfire Flames | Hot Wheels Boost Flames | Which of the game's exhaust effects the nitro flames use. **Hot Wheels Boost Flames** is the effect of the Hot Wheels speed boost: it keeps working when a muffler is knocked off. **Backfire Flames** is the original look. Changes right away. |
+| Boost Look Intensity | 0% - 100% | 100% | How strongly the nitro looks like the game's own boost (with Flame Effect: Hot Wheels Boost Flames). The crisp white flame, the camera pulling back and the motion blur all follow it. 100% is the game's full boost, 0% turns it off. Changes right away. |
+| FH2 Push Strength | 0.05 - 1.00 | 0.30 | How hard FH2 Push pushes (only used with that method). 1.00 is the FH2 mod's strength. Changes right away. |
+| HUD Theme | FH3 (Gear Cyan) / FH2 (Yellow) / FH2 Fast & Furious (Blue) | FH2 Fast & Furious | The colour of the NOS gauge on both speedometers. Changes right away. |
 | Hide Nitro Gauge Without Kit | On / Off | On | Hides the NOS gauge on cars with no Nitrous Kit. |
 | Nitro Tank Capacity (sec) | 5 - 60 | 5 | Seconds of nitro in a full tank. |
 | Nitro Buildup Time (sec) | 0.1 - 2.0 | 0.5 | How long the push takes to ramp up. |
@@ -74,7 +78,7 @@ Everything is on **Pause > MODS**; the values are saved to `fh3-mods\NitroSystem
 | Nitro Wider FOV | 0 - 30 | 10 | How much wider the field of view gets while nitro burns. 0 turns it off. |
 | Nitro Blue Vignette | On / Off | On | A pulsing blue vignette at the screen edges while nitro burns. |
 | Nitro Speed Lines | On / Off | On | Blue streaks along the screen edges. |
-| Backfire on All Cars | On / Off | On | Lets every car backfire, which the exhaust flames need. **Needs a game restart.** |
+| Backfire on All Cars | On / Off | On | Lets every car backfire, which the exhaust flames need. Changes right away. |
 | Refill Nitro on Race Start | On / Off | On | Refills the tank at race start, changing car or fast travel. |
 | Refund Nitro on Rewind | On / Off | On | Rewinding gives back the nitro used since the rewind point. |
 | Nitro Controller Rumble | On / Off | On | Rumbles the controller while nitro burns. |
@@ -92,12 +96,13 @@ Boost2=1.4
 Boost3=1.6
 
 [FH3]
+PushScale=0.30   ; strength of the FH2 Push method (1.00 = the FH2 mod's strength)
 PowerScale=2.0   ; extra torque = (boost - 1) x PowerScale; 2 gives +40 / +80 / +120 % torque on stages 1 / 2 / 3
 ```
 
 Which stage is fitted to and owned by each car is kept by the platform's upgrade bridge (older `[GarageNitro]` / `[GarageOwned]` entries in the ini are moved over once).
 
-**Nitro Button numbers** (the Mods page can only show numbers; in the ini you write the name, for example `NitroButton=LB`):
+**Nitro Button names** (the Mods page shows the name on platform API 9 or newer, and the number from this table on an older platform; in the ini you write the name, for example `NitroButton=LB`):
 
 | # | Name | Button | # | Name | Button |
 |---|---|---|---|---|---|
@@ -114,7 +119,7 @@ Pick a button the game does not already use while driving, or it will do both at
 
 `[Settings] Log=1` in the ini writes what the mod does to `fh3-mods\platform.log` (for bug reports). It is `0` by default: only problems (a hook that couldn't be set, something not found) are logged.
 
-`HudTheme` in the ini is `FF` (default) or `Original`. `BackfireOnAllCars=1` makes the mod change a game database query so every car can backfire, which the flames depend on; turn it off to leave the game's backfire settings alone (flames then only work on cars the game already lets backfire).
+`HudTheme` in the ini is `FF` (default), `FH2` (`Original` in older versions also means this) or `FH3`. `BackfireOnAllCars=1` makes the mod change a game database query so every car can backfire, which the flames depend on; turn it off to leave the game's backfire settings alone (flames then only work on cars the game already lets backfire).
 
 ## Uninstalling
 
@@ -160,3 +165,7 @@ See [CREDITS.md](CREDITS.md) for the full list. In short:
 **MIT**, see [LICENSE](LICENSE) (the copyright notice of the upstream NitroSystem licence, which names Bartholomew Ho, is kept; modifications are by Levilente). `include/fh3mod.h` is the platform's header, MIT, see [LICENSE-fh2mod-MIT.txt](LICENSE-fh2mod-MIT.txt). The HUD files, particle file and sounds are covered in [CREDITS.md](CREDITS.md).
 
 This is an unofficial fan modification. Forza Horizon 3 is a trademark of Microsoft / Playground Games.
+
+## For other mods
+
+Another FH3 Mod Platform mod can switch the NOS off while it needs to (a mini-game, a cutscene, a special vehicle) with `set_blocked("MyMod", 1)` and back on with `0`; see [docs/MOD_CONTROL.md](docs/MOD_CONTROL.md) and `include/NitroSystemControl.h`.

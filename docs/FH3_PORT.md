@@ -23,7 +23,7 @@ starts with the same code (`[rcx+0x270]`/`[rcx+0x540]` in FH3 vs `0x260`/`0x510`
 | Exhaust flames | done (fh3.35) |
 | Camera shake, wider FOV | done |
 | NOS gauge, analog (one arc + glowing tip) and digital (4 segments) | done; hidden on cars without a kit |
-| HUD theme (`HudTheme=FF` cyan / `Original` yellow) | done (bar colour only; FH3 keeps its own gear / assist icons) |
+| HUD theme (`HudTheme=FH3` gear cyan / `FH2` yellow / `FF` blue-cyan) | done (bar colour only; FH3 keeps its own gear / assist icons) |
 | Blue vignette, speed lines | done (speed lines: 3 tiers instead of 6, the free HUD items) |
 | Refill on race start, refund on rewind, rumble, sounds | shared code, as FH2 |
 | Backfire on all cars (`UPDATE BackfireLevels`) | done |
